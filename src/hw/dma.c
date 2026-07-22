@@ -1,2 +1,2 @@
 #include <hw/dma.h>
-int dma_init(void) { return 0; }
+void dma_init(void) { }

@@ -20,6 +20,36 @@ typedef volatile bool atomic_bool;
 #define MEMORY_ORDER_RELEASE  2
 #define MEMORY_ORDER_SEQ_CST  3
 
+/* Compare-and-swap (CAS) */
+static ALWAYS_INLINE bool atomic_cas(atomic_int* ptr, int32_t expected, int32_t desired) {
+#if defined(__x86_64__) || defined(__i386__)
+    int32_t prev;
+    asm volatile("lock cmpxchg %3, %0"
+                 : "+m" (*ptr), "=a" (prev)
+                 : "a" (expected), "r" (desired)
+                 : "memory", "cc");
+    return prev == expected;
+#else
+    /* Fallback - architecture specific implementation needed */
+    return __sync_bool_compare_and_swap(ptr, expected, desired);
+#endif
+}
+
+/* Atomic load (simple) */
+static ALWAYS_INLINE int32_t atomic_load(const atomic_int* ptr) {
+    return *ptr;
+}
+
+/* Atomic store (simple) */
+static ALWAYS_INLINE void atomic_store(atomic_int* ptr, int32_t val) {
+    *ptr = val;
+}
+
+/* Compare-and-exchange weak */
+static ALWAYS_INLINE bool atomic_compare_exchange_weak(atomic_int* ptr, int32_t expected, int32_t desired) {
+    return atomic_cas(ptr, expected, desired);
+}
+
 /* Atomic load with acquire semantics */
 static ALWAYS_INLINE int32_t atomic_load_acquire(const atomic_int* ptr) {
     int32_t val = *ptr;
@@ -37,21 +67,6 @@ static ALWAYS_INLINE void atomic_store_release(atomic_int* ptr, int32_t val) {
     asm volatile("sfence" ::: "memory");
 #endif
     *ptr = val;
-}
-
-/* Compare-and-swap (CAS) */
-static ALWAYS_INLINE bool atomic_cas(atomic_int* ptr, int32_t expected, int32_t desired) {
-#if defined(__x86_64__) || defined(__i386__)
-    int32_t prev;
-    asm volatile("lock cmpxchg %3, %0"
-                 : "+m" (*ptr), "=a" (prev)
-                 : "a" (expected), "r" (desired)
-                 : "memory", "cc");
-    return prev == expected;
-#else
-    /* Fallback - architecture specific implementation needed */
-    return __sync_bool_compare_and_swap(ptr, expected, desired);
-#endif
 }
 
 /* Fetch-and-add */

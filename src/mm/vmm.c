@@ -1,4 +1,4 @@
 #include <kernel/types.h>
 #include <mm/vmm.h>
-int vmm_init(void) { return 0; }
+void vmm_init(void) { }
 int vmm_map(uintptr_t v, uintptr_t p) {(void)v;(void)p; return 0;}
