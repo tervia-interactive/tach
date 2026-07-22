@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 #include <hal/io.h>
 uint8_t hal_port_in(uint16_t port) {(void)port; return 0;}
 void hal_port_out(uint16_t port, uint8_t val) {(void)port;(void)val;}

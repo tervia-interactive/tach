@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 #include <kernel/rwlock.h>
 void rwlock_init(rwlock_t *l) {(void)l;}
 void rwlock_read_lock(rwlock_t *l) {(void)l;}

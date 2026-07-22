@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 #include <fs/vfs.h>
 int vfs_init(void) { return 0; }
 int vfs_open(const char *path) {(void)path; return 0;}

@@ -13,10 +13,12 @@
 #define NULL ((void*)0)
 #endif
 
-/* Boolean type */
-typedef _Bool bool;
+/* Boolean type - only define if not already defined */
+#ifndef __bool_true_false_are_defined
+typedef unsigned char bool;
 #define true  1
 #define false 0
+#endif
 
 /* Standard integer types (from stdint.h) */
 /* int8_t, int16_t, int32_t, int64_t */

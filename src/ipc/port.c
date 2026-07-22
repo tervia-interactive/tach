@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 #include <kernel/port.h>
 int port_create(void) { return 0; }
 void port_destroy(int p) {(void)p;}

@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 /* Kernel string library */
 #include <kernel/types.h>
 
