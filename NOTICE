@@ -1,0 +1,34 @@
+Copyright 2026 Tervia Interactive™
+
+This product includes software developed by Tervia Interactive™
+(the "Original Project").
+
+================================================================================
+ATTRIBUTION AND CREDIT REQUIREMENTS
+================================================================================
+
+In accordance with Section 4(d) of the Apache License, Version 2.0, any 
+Derivative Works that you distribute must include a readable copy of the 
+attribution notices contained within this NOTICE file.
+
+If your system, operating system, or software is based on, derived from, or 
+incorporates the architecture, concepts, design, or code of tach, 
+you are required to provide clear and visible attribution to the Original Project.
+
+This attribution must be included in at least one of the following places:
+
+1. Within a NOTICE text file distributed as part of your Derivative Works.
+2. Within the Source form or documentation, if provided along with the 
+   Derivative Works.
+3. In the display of the output of your Derivative Works, specifically:
+   - On the system boot screen, splash screen, or terminal login prompt.
+   - In the system's "About", "System Information", or equivalent UI screen.
+   - In the official documentation, website, or README file of your project.
+
+Suggested attribution text to be displayed:
+
+"This system is based on tach, originally created by Tervia Interactive™. 
+Visit tervia-interactive/tach for more information."
+
+Failure to include these attribution notices in Derivative Works is a violation 
+of the terms of the Apache License, Version 2.0.
