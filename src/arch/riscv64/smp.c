@@ -1,6 +1,6 @@
 /* RISC-V 64-bit SMP Support */
 
-#include <hal/hal_smp.h>
+#include <hal/smp.h>
 #include <kernel/types.h>
 
 static int cpu_count = 1;

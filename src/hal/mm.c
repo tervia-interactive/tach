@@ -1,6 +1,6 @@
 /* tach Operating System - HAL MM Implementation */
 #include <kernel/types.h>
-#include <hal/hal_mm.h>
+#include <hal/mm.h>
 
 void hal_mmu_init(void) {}
 

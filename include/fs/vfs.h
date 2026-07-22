@@ -33,8 +33,8 @@ struct vnode {
 struct vnode_ops {
     int (*open)(struct vnode* vn, int flags);
     int (*close)(struct vnode* vn);
-    ssize_t (*read)(struct vnode* vn, void* buf, size_t count, off_t offset);
-    ssize_t (*write)(struct vnode* vn, const void* buf, size_t count, off_t offset);
+    ssize_t (*read)(struct vnode* vn, void* buf, size_t count, int64_t offset);
+    ssize_t (*write)(struct vnode* vn, const void* buf, size_t count, int64_t offset);
     int (*readdir)(struct vnode* vn, struct dirent* entry);
 };
 
@@ -43,7 +43,7 @@ struct vnode* vfs_root(void);
 int vfs_mount(const char* path, struct vnode* root);
 struct vnode* vfs_open(const char* path, int flags);
 int vfs_close(struct vnode* vn);
-ssize_t vfs_read(struct vnode* vn, void* buf, size_t count, off_t offset);
-ssize_t vfs_write(struct vnode* vn, const void* buf, size_t count, off_t offset);
+ssize_t vfs_read(struct vnode* vn, void* buf, size_t count, int64_t offset);
+ssize_t vfs_write(struct vnode* vn, const void* buf, size_t count, int64_t offset);
 
 #endif /* _FS_VFS_H */

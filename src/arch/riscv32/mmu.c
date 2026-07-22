@@ -1,6 +1,6 @@
 /* RISC-V 32-bit MMU Implementation */
 
-#include <hal/hal_mm.h>
+#include <hal/mm.h>
 #include <kernel/types.h>
 #include <kernel/panic.h>
 

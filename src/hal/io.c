@@ -1,6 +1,6 @@
 /* tach Operating System - HAL I/O Implementation */
 #include <kernel/types.h>
-#include <hal/hal_io.h>
+#include <hal/io.h>
 
 uint8_t hal_port_in(uint16_t port) {
     (void)port;

@@ -1,29 +1,37 @@
-#ifndef DRIVERS_BLOCK_ATA_H
-#define DRIVERS_BLOCK_ATA_H
+/* tach Operating System - ATA Header */
+#ifndef _DRIVERS_ATA_H
+#define _DRIVERS_ATA_H
 
 #include <kernel/types.h>
+#include <stdint.h>
 
-#define ATA_SECTOR_SIZE 512
-#define ATA_MAX_DRIVES 4
+/* ATA device types */
+#define ATA_DEVICE_MASTER 0
+#define ATA_DEVICE_SLAVE 1
 
-typedef enum {
-    ATA_DRIVE_MASTER = 0,
-    ATA_DRIVE_SLAVE = 1,
-    ATA_DRIVE_MASTER_2 = 2,
-    ATA_DRIVE_SLAVE_2 = 3
-} ata_drive_t;
+/* ATA commands */
+#define ATA_CMD_READ_SECTORS 0x20
+#define ATA_CMD_WRITE_SECTORS 0x30
+#define ATA_CMD_IDENTIFY 0xEC
 
+/* ATA device structure */
 typedef struct {
-    uint8_t present;
-    uint8_t type;
+    uint16_t io_base;
+    uint8_t device;
+    bool present;
     uint32_t sectors;
-    char model[41];
-    char serial[21];
 } ata_device_t;
 
+/* Initialize ATA controller */
 int ata_init(void);
-int ata_read_sector(ata_drive_t drive, uint32_t lba, void *buffer);
-int ata_write_sector(ata_drive_t drive, uint32_t lba, const void *buffer);
-ata_device_t *ata_get_device(ata_drive_t drive);
 
-#endif /* DRIVERS_BLOCK_ATA_H */
+/* Identify ATA device */
+int ata_identify(ata_device_t* dev);
+
+/* Read sectors from ATA device */
+int ata_read_sectors(ata_device_t* dev, uint32_t lba, uint8_t* buffer, uint8_t count);
+
+/* Write sectors to ATA device */
+int ata_write_sectors(ata_device_t* dev, uint32_t lba, const uint8_t* buffer, uint8_t count);
+
+#endif /* _DRIVERS_ATA_H */

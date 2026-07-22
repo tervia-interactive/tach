@@ -15,7 +15,7 @@
 struct fd_entry {
     struct vnode* vnode;
     int flags;
-    off_t offset;
+    int64_t offset;
 };
 
 struct fd_table {

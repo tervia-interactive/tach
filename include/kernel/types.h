@@ -35,6 +35,8 @@ typedef uint32_t gid_t;      /* Group ID */
 typedef int32_t  ssize_t;    /* Signed size type */
 typedef uint64_t time_t;     /* Time type */
 typedef uint64_t tick_t;     /* Timer tick type */
+typedef uintptr_t phys_addr_t; /* Physical address type for DMA/MMU */
+typedef uintptr_t virt_addr_t; /* Virtual address type */
 
 /* Result type for kernel operations */
 typedef int32_t result_t;
