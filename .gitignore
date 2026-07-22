@@ -4,29 +4,28 @@
 *.obj
 *.out
 *.bin
-*.elf
 *.img
 *.iso
+*.elf
 
 # Build directories
 build/
 dist/
 output/
+target/
 
-# Dependencies
+# Dependencies and packages
+node_modules/
 vendor/
-external/
 
-# Logs and temp files
+# Logs and temporary files
 *.log
 *.tmp
-*.bak
-*.swp
+*.temp
 
-# Environment files
-.env
-.env.local
-*.env.*
+# OS specific
+.DS_Store
+Thumbs.db
 
 # Editors
 .vscode/
@@ -34,16 +33,17 @@ external/
 *.swp
 *.swo
 
-# OS specific
-.DS_Store
-Thumbs.db
+# Configuration and environment
+.env
+.env.local
+*.env.*
 
-# Coverage reports
+# Coverage and testing
 coverage/
 htmlcov/
-*.coverage
+.coverage
 
-# Compression artifacts (if any generated during build)
+# Compressed files
 *.zip
 *.gz
 *.tar

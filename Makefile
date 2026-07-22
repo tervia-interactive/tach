@@ -10,17 +10,17 @@ all: $(ARCH)
 
 # Build targets for each architecture
 i686 x86_64 arm32 aarch64 riscv32 riscv64:
-@echo "Building tach for $(ARCH)..."
-$(MAKE) -C src ARCH=$(ARCH)
+	@echo "Building tach for $(ARCH)..."
+	$(MAKE) -C src ARCH=$(ARCH)
 ifeq ($(ARCH),i686)
-@echo "Creating bootable ISO for i686..."
-$(MAKE) -C src iso ARCH=$(ARCH)
+	@echo "Creating bootable ISO for i686..."
+	$(MAKE) -C src iso ARCH=$(ARCH)
 endif
 ifeq ($(ARCH),x86_64)
-@echo "Creating bootable ISO for x86_64..."
-$(MAKE) -C src iso ARCH=$(ARCH)
+	@echo "Creating bootable ISO for x86_64..."
+	$(MAKE) -C src iso ARCH=$(ARCH)
 endif
-@echo "Build complete for $(ARCH). Output in $(BUILD_DIR)"
+	@echo "Build complete for $(ARCH). Output in $(BUILD_DIR)"
 
 # Legacy architecture names (for backwards compatibility)
 i386: i686
