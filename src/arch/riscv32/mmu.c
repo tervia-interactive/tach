@@ -14,14 +14,12 @@
 
 static uint32_t *root_page_table = NULL;
 
-int hal_mmu_init(void) {
+void hal_mmu_init(void) {
     root_page_table = (uint32_t *)0x80000000;
     
     for (size_t i = 0; i < 1024; i++) {
         root_page_table[i] = 0;
     }
-    
-    return 0;
 }
 
 int hal_mmu_map(uintptr_t vaddr, uintptr_t paddr, size_t size, uint32_t flags) {

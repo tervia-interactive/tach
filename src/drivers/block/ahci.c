@@ -1,2 +1,2 @@
 #include <drivers/block/ahci.h>
-void ahci_init(void) { }
+int ahci_init(void) { return 0; }

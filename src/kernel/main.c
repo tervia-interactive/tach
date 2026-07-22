@@ -7,11 +7,16 @@
 #include <kernel/types.h>
 #include <kernel/panic.h>
 #include <kernel/version.h>
+#include <kernel/ktest.h>
 #include <hal/console.h>
 #include <hal/cpu.h>
 
 void kernel_main(void) {
     hal_console_early_init();
+
+#ifdef TACH_TEST
+    ktest_run_all();
+#endif
     
     hal_console_putchar('\n');
     hal_console_putchar('\n');

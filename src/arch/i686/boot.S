@@ -1,7 +1,7 @@
 # i686 Boot Entry Point
 # Multiboot 1 compliant bootloader entry
 
-.section .multiboot
+.section .multiboot, "a"
 .align 4
 .long 0x1BADB002
 .long 0x00000000

@@ -14,10 +14,20 @@ cd "$ROOT_DIR"
 make clean 2>/dev/null || true
 make ARCH="$ARCH"
 
-if [ -f "build/${ARCH}/bin/tach.iso" ]; then
-    echo "✓ ISO created: build/${ARCH}/bin/tach.iso"
-elif [ -f "build/${ARCH}/bin/tach.bin" ]; then
-    echo "✓ Kernel created: build/${ARCH}/bin/tach.bin"
+# i686 and x86_64 need a GRUB ISO to boot correctly under QEMU:
+# QEMU's built-in -kernel multiboot loader only accepts 32-bit ELF, so
+# x86_64 must be booted via GRUB+ISO (see run-qemu.sh). Build it here
+# by default so run-qemu.sh doesn't silently fall back to -kernel.
+case "$ARCH" in
+    i686|x86_64)
+        make iso ARCH="$ARCH"
+        ;;
+esac
+
+if [ -f "src/build/${ARCH}/tach.iso" ]; then
+    echo "✓ ISO created: src/build/${ARCH}/tach.iso"
+elif [ -f "src/build/${ARCH}/tach.bin" ]; then
+    echo "✓ Kernel created: src/build/${ARCH}/tach.bin"
 else
     echo "✗ Build failed"
     exit 1

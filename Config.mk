@@ -34,7 +34,7 @@ OBJCOPY := $(CROSS_COMPILE)objcopy
 OBJDUMP := $(CROSS_COMPILE)objdump
 
 # Common flags
-CFLAGS := -ffreestanding -fno-stack-protector -fno-builtin -Wall -Wextra -nostdlib -nodefaultlibs
+CFLAGS := -ffreestanding -fno-stack-protector -fno-builtin -fno-pic -fno-pie -Wall -Wextra -nostdlib -nodefaultlibs
 CFLAGS += -I$(CURDIR)/include
 CFLAGS += -O2 -DNDEBUG
 
@@ -56,11 +56,11 @@ ifeq ($(ARCH),aarch64)
     LDFLAGS := -m aarch64elf -T $(CURDIR)/link/aarch64.ld
 endif
 ifeq ($(ARCH),riscv32)
-    CFLAGS += -march=rv32ima -mabi=ilp32
+    CFLAGS += -march=rv32ima_zicsr -mabi=ilp32
     LDFLAGS := -m elf32lriscv -T $(CURDIR)/link/riscv32.ld
 endif
 ifeq ($(ARCH),riscv64)
-    CFLAGS += -march=rv64ima -mabi=lp64
+    CFLAGS += -march=rv64ima_zicsr -mabi=lp64
     LDFLAGS := -m elf64lriscv -T $(CURDIR)/link/riscv64.ld
 endif
 

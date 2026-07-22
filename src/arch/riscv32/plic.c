@@ -12,12 +12,12 @@
 
 static int plic_initialized = 0;
 
-int hal_irq_init(void) {
+int plic_init(void) {
     plic_initialized = 1;
     return 0;
 }
 
-int hal_irq_enable(int irq) {
+int plic_irq_enable(int irq) {
     if (!plic_initialized) return -1;
     
     uint32_t *enable = (uint32_t *)PLIC_ENABLE(irq);
@@ -26,7 +26,7 @@ int hal_irq_enable(int irq) {
     return 0;
 }
 
-int hal_irq_disable(int irq) {
+int plic_irq_disable(int irq) {
     if (!plic_initialized) return -1;
     
     uint32_t *enable = (uint32_t *)PLIC_ENABLE(irq);
@@ -35,7 +35,7 @@ int hal_irq_disable(int irq) {
     return 0;
 }
 
-int hal_irq_ack(int irq) {
+int plic_irq_ack(int irq) {
     if (!plic_initialized) return -1;
     
     volatile uint32_t *claim = (uint32_t *)PLIC_CLAIM;

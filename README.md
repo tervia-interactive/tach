@@ -69,24 +69,24 @@ make format
 
 ```bash
 # x86/x86_64 (using ISO)
-qemu-system-i386 -cdrom build/i686/bin/tach.iso
-qemu-system-x86_64 -cdrom build/x86_64/bin/tach.iso
+qemu-system-i386 -cdrom src/build/i686/tach.iso
+qemu-system-x86_64 -cdrom src/build/x86_64/tach.iso
 
 # Or using kernel directly
-qemu-system-i386 -kernel build/i686/bin/tach.bin
-qemu-system-x86_64 -kernel build/x86_64/bin/tach.bin
+qemu-system-i386 -kernel src/build/i686/tach.bin
+qemu-system-x86_64 -kernel src/build/x86_64/tach.bin
 
 # ARM
-qemu-system-arm -M virt -cpu cortex-a9 -kernel build/arm32/bin/tach.bin -nographic
+qemu-system-arm -M virt -cpu cortex-a9 -kernel src/build/arm32/tach.bin -nographic
 
 # ARM64
-qemu-system-aarch64 -M virt -cpu cortex-a57 -kernel build/aarch64/bin/tach.bin -nographic
+qemu-system-aarch64 -M virt -cpu cortex-a57 -kernel src/build/aarch64/tach.bin -nographic
 
 # RISC-V 32
-qemu-system-riscv32 -M virt -kernel build/riscv32/bin/tach.bin -nographic
+qemu-system-riscv32 -M virt -kernel src/build/riscv32/tach.bin -nographic
 
 # RISC-V 64
-qemu-system-riscv64 -M virt -kernel build/riscv64/bin/tach.bin -nographic
+qemu-system-riscv64 -M virt -kernel src/build/riscv64/tach.bin -nographic
 ```
 
 ## Using Scripts

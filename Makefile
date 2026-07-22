@@ -15,6 +15,6 @@ iso:
 	$(MAKE) -C src iso ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
 
 clean:
-	rm -rf build/
+	rm -rf src/build/
 	find src -name "*.o" -delete
 	find src -name "*.bin" -delete

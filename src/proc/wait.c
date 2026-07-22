@@ -1,3 +1,4 @@
 #include <kernel/types.h>
 #include <proc/wait.h>
-int waitpid(int pid, int *status) {(void)pid;(void)status; return 0;}
+pid_t wait(int *status) {(void)status; return 0;}
+pid_t waitpid(pid_t pid, int *status, int options) {(void)pid;(void)status;(void)options; return 0;}

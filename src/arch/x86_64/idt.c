@@ -7,4 +7,11 @@ void idt_set_gate(uint8_t num, uint64_t base, uint16_t selector, uint8_t flags) 
     idt[num].base_low = (base & 0xFFFF); idt[num].base_high = (base >> 16) & 0xFFFF;
     idt[num].selector = selector; idt[num].zero = 0; idt[num].flags = flags;
 }
-void idt_init(void) { idt_ptr.limit = sizeof(struct idt_entry) * 256 - 1; idt_ptr.base = (uint64_t)&idt; }
+void idt_init(void) {
+    idt_ptr.limit = sizeof(struct idt_entry) * 256 - 1;
+    idt_ptr.base = (uint64_t)&idt;
+    for (int i = 0; i < 256; i++) {
+        idt_set_gate(i, 0, 0, 0);
+    }
+    idt_flush((uint64_t)&idt_ptr);
+}

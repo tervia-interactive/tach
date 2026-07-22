@@ -6,7 +6,7 @@
 
 _start:
     # Disable interrupts
-    csrc mstatus, %t0
+    csrci mstatus, 0x8
     
     # Set trap vector (stvec for supervisor mode)
     la t0, trap_vector

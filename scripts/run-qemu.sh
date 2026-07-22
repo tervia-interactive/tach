@@ -7,8 +7,8 @@ set -e
 ARCH="${1:-x86_64}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-KERNEL_BIN="$ROOT_DIR/build/${ARCH}/bin/tach.bin"
-KERNEL_ISO="$ROOT_DIR/build/${ARCH}/bin/tach.iso"
+KERNEL_BIN="$ROOT_DIR/src/build/${ARCH}/tach.bin"
+KERNEL_ISO="$ROOT_DIR/src/build/${ARCH}/tach.iso"
 
 case "$ARCH" in
     i686|i386)
