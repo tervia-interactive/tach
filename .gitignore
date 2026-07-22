@@ -1,10 +1,10 @@
 ```
 # Build artifacts
-build/
-dist/
 *.o
 *.obj
 *.out
+build/
+dist/
 
 # Dependencies
 node_modules/
@@ -23,22 +23,20 @@ target/
 *.swo
 *.tmp
 
-# Logs
-*.log
-
-# Environment
+# System files
+.DS_Store
+Thumbs.db
 .env
 .env.local
 *.env.*
+
+# Logs
+*.log
 
 # Coverage
 coverage/
 htmlcov/
 .coverage
-
-# System files
-.DS_Store
-Thumbs.db
 
 # Compressed files
 *.zip
