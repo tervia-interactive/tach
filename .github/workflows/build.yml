@@ -1,147 +1,144 @@
-# tach Operating System - GitHub Actions Build Workflow
-# Builds ISOs for all supported architectures
-
-name: Build tach OS
+name: Build Tach OS
 
 on:
   push:
-    branches: [main, develop]
-    tags: ['v*']
+    branches: [ main, develop ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
+  release:
+    types: [ created ]
 
 jobs:
-  build:
-    name: Build ${{ matrix.arch }}
-    runs-on: ubuntu-latest
+  build-x86:
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
-        arch: [i686, x86_64, arm32, aarch64, riscv32, riscv64]
-        include:
-          - arch: i686
-            cross: i686-elf
-            qemu: qemu-system-i386
-          - arch: x86_64
-            cross: x86_64-elf
-            qemu: qemu-system-x86_64
-          - arch: arm32
-            cross: arm-none-eabi
-            qemu: qemu-system-arm
-          - arch: aarch64
-            cross: aarch64-none-elf
-            qemu: qemu-system-aarch64
-          - arch: riscv32
-            cross: riscv32-unknown-elf
-            qemu: qemu-system-riscv32
-          - arch: riscv64
-            cross: riscv64-unknown-elf
-            qemu: qemu-system-riscv64
-
+        arch: [ i686, x86_64 ]
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+    
+    - name: Install x86 toolchain and dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc-multilib \
+          g++-multilib \
+          binutils \
+          xorriso \
+          grub-pc-bin \
+          grub-common \
+          mtools \
+          qemu-system-x86
+    
+    - name: Build ${{ matrix.arch }}
+      run: make ARCH=${{ matrix.arch }} CROSS_COMPILE=
+    
+    - name: Create ISO for ${{ matrix.arch }}
+      run: make iso ARCH=${{ matrix.arch }} CROSS_COMPILE=
+    
+    - name: Upload binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: tach-${{ matrix.arch }}-kernel
+        path: build/${{ matrix.arch }}/tach.bin
+        retention-days: 30
+    
+    - name: Upload ISO
+      uses: actions/upload-artifact@v4
+      with:
+        name: tach-${{ matrix.arch }}-iso
+        path: build/${{ matrix.arch }}/tach.iso
+        retention-days: 30
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            nasm \
-            xorriso \
-            grub-pc-bin \
-            grub-common \
-            qemu-system-x86 \
-            qemu-system-arm \
-            qemu-system-riscv32 \
-            qemu-system-riscv64 \
-            clang-format
+  build-arm:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        arch: [ arm32, aarch64 ]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install ARM toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc-arm-linux-gnueabihf \
+          gcc-aarch64-linux-gnu \
+          binutils-arm-linux-gnueabihf \
+          binutils-aarch64-linux-gnu
+    
+    - name: Build ${{ matrix.arch }}
+      run: |
+        if [ "${{ matrix.arch }}" == "arm32" ]; then
+          make ARCH=arm32 CROSS_COMPILE=arm-linux-gnueabihf-
+        else
+          make ARCH=aarch64 CROSS_COMPILE=aarch64-linux-gnu-
+        fi
+    
+    - name: Upload binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: tach-${{ matrix.arch }}-kernel
+        path: build/${{ matrix.arch }}/tach.bin
+        retention-days: 30
 
-      - name: Install i686 cross-compiler
-        if: matrix.arch == 'i686'
-        run: |
-          sudo apt-get install -y gcc-multilib
-
-      - name: Install x86_64 cross-compiler
-        if: matrix.arch == 'x86_64'
-        run: |
-          sudo apt-get install -y gcc-x86-64-linux-gnu
-
-      - name: Install ARM cross-compiler
-        if: matrix.arch == 'arm32'
-        run: |
-          sudo apt-get install -y gcc-arm-none-eabi
-
-      - name: Install AArch64 cross-compiler
-        if: matrix.arch == 'aarch64'
-        run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Install RISC-V 32-bit cross-compiler
-        if: matrix.arch == 'riscv32'
-        run: |
-          sudo apt-get install -y gcc-riscv32-unknown-elf || sudo apt-get install -y gcc-riscv64-linux-gnu
-
-      - name: Install RISC-V 64-bit cross-compiler
-        if: matrix.arch == 'riscv64'
-        run: |
-          sudo apt-get install -y gcc-riscv64-unknown-elf || sudo apt-get install -y gcc-riscv64-linux-gnu
-
-      - name: Build tach for ${{ matrix.arch }}
-        run: |
-          make ARCH=${{ matrix.arch }}
-
-      - name: Upload kernel binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: tach-${{ matrix.arch }}-kernel
-          path: build/${{ matrix.arch }}/bin/tach.bin
-          retention-days: 30
-
-      - name: Upload ISO (x86 only)
-        if: matrix.arch == 'i686' || matrix.arch == 'x86_64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tach-${{ matrix.arch }}-iso
-          path: build/${{ matrix.arch }}/bin/tach.iso
-          retention-days: 30
+  build-riscv:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        arch: [ riscv32, riscv64 ]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install RISC-V toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc-riscv64-linux-gnu \
+          gcc-riscv32-linux-gnu \
+          binutils-riscv64-linux-gnu \
+          binutils-riscv32-linux-gnu
+    
+    - name: Build ${{ matrix.arch }}
+      run: |
+        if [ "${{ matrix.arch }}" == "riscv32" ]; then
+          make ARCH=riscv32 CROSS_COMPILE=riscv32-linux-gnu-
+        else
+          make ARCH=riscv64 CROSS_COMPILE=riscv64-linux-gnu-
+        fi
+    
+    - name: Upload binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: tach-${{ matrix.arch }}-kernel
+        path: build/${{ matrix.arch }}/tach.bin
+        retention-days: 30
 
   release:
-    name: Create Release
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-
+    needs: [build-x86, build-arm, build-riscv]
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'release'
+    
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Create release assets
-        run: |
-          cd artifacts
-          for f in */*; do
-            mv "$f" "$(dirname "$f")/$(basename "$f" | sed 's/tach-/tach-os-/')"
-          done
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: artifacts/*/*.bin
-          body: |
-            ## tach OS Release
-            
-            Automated build for all supported architectures.
-            
-            ### Architectures included:
-            - i686 (32-bit x86) - ISO available
-            - x86_64 (64-bit x86) - ISO available  
-            - arm32 (32-bit ARM)
-            - aarch64 (64-bit ARM)
-            - riscv32 (32-bit RISC-V)
-            - riscv64 (64-bit RISC-V)
-            
-            ### Usage
-            For x86/x86_64, use the .iso files with QEMU or burn to USB.
-            For other architectures, use the .bin files with QEMU.
-          draft: false
-          prerelease: true
+    - uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Prepare release assets
+      run: |
+        mkdir release-assets
+        find artifacts -name "*.bin" -exec cp {} release-assets/ \;
+        find artifacts -name "*.iso" -exec cp {} release-assets/ \;
+    
+    - name: Upload to Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release-assets/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 /*
  * tach Operating System - Kernel Main Entry Point
  * Copyright 2026 Tervia Interactive™

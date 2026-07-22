@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 /* HAL CPU Dispatcher */
 #include <hal/cpu.h>
 

@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 /*
  * tach Operating System - Kernel Panic Handler
  * Copyright 2026 Tervia Interactive™

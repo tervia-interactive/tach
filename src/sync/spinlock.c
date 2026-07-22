@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 #include <kernel/spinlock.h>
 void spinlock_init(spinlock_t *lock) {(void)lock;}
 void spinlock_lock(spinlock_t *lock) {(void)lock;}

@@ -5,24 +5,33 @@
 *.out
 build/
 dist/
+target/
 
 # Dependencies
 node_modules/
+venv/
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.gradle/
 
-# Logs and temp files
+# Logs and temporary files
 *.log
 *.tmp
+*.swp
+*.swo
 
-# Editors
-.vscode/
-.idea/
-
-# Environment
+# Environment files
 .env
 .env.local
 *.env.*
 
-# OS files
+# Editors/IDE
+.vscode/
+.idea/
+
+# System files
 .DS_Store
 Thumbs.db
 
@@ -30,42 +39,6 @@ Thumbs.db
 coverage/
 htmlcov/
 .coverage
-
-# Python specific
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.so
-*.egg-info/
-.eggs/
-
-# Virtual environments
-venv/
-.venv/
-env/
-ENV/
-
-# Testing
-.pytest_cache/
-.mypy_cache/
-.tox/
-
-# Java/Gradle
-*.class
-*.jar
-*.war
-*.ear
-target/
-.gradle/
-
-# C/C++
-*.a
-*.lib
-*.dll
-*.so
-*.dylib
 
 # Compressed files
 *.zip

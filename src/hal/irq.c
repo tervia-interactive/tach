@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 #include <hal/irq.h>
 void hal_irq_enable(void) {}
 void hal_irq_disable(void) {}

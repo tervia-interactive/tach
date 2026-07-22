@@ -1,3 +1,4 @@
+#include <kernel/types.h>
 /*
  * HAL Console Dispatcher
  * Copyright 2026 Tervia Interactive™
