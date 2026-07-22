@@ -58,16 +58,12 @@ jobs:
       - name: Install i686 cross-compiler
         if: matrix.arch == 'i686'
         run: |
-          wget -q https://osdev.org/files/i686-elf-gcc.tar.xz
-          tar -xf i686-elf-gcc.tar.xz -C /opt
-          echo "/opt/i686-elf/bin" >> $GITHUB_PATH
+          sudo apt-get install -y gcc-multilib
 
       - name: Install x86_64 cross-compiler
         if: matrix.arch == 'x86_64'
         run: |
-          wget -q https://osdev.org/files/x86_64-elf-gcc.tar.xz
-          tar -xf x86_64-elf-gcc.tar.xz -C /opt
-          echo "/opt/x86_64-elf/bin" >> $GITHUB_PATH
+          sudo apt-get install -y gcc-x86-64-linux-gnu
 
       - name: Install ARM cross-compiler
         if: matrix.arch == 'arm32'
@@ -82,12 +78,12 @@ jobs:
       - name: Install RISC-V 32-bit cross-compiler
         if: matrix.arch == 'riscv32'
         run: |
-          sudo apt-get install -y gcc-riscv32-unknown-elf
+          sudo apt-get install -y gcc-riscv32-unknown-elf || sudo apt-get install -y gcc-riscv64-linux-gnu
 
       - name: Install RISC-V 64-bit cross-compiler
         if: matrix.arch == 'riscv64'
         run: |
-          sudo apt-get install -y gcc-riscv64-unknown-elf
+          sudo apt-get install -y gcc-riscv64-unknown-elf || sudo apt-get install -y gcc-riscv64-linux-gnu
 
       - name: Build tach for ${{ matrix.arch }}
         run: |

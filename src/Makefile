@@ -30,12 +30,12 @@ LINKER_SCRIPT := ../link/aarch64.ld
 ARCH_DIR := arch/aarch64
 endif
 ifeq ($(ARCH),riscv32)
-CROSS_COMPILE := riscv32-elf-
+CROSS_COMPILE := riscv64-linux-gnu-
 LINKER_SCRIPT := ../link/riscv32.ld
 ARCH_DIR := arch/riscv32
 endif
 ifeq ($(ARCH),riscv64)
-CROSS_COMPILE := riscv64-elf-
+CROSS_COMPILE := riscv64-linux-gnu-
 LINKER_SCRIPT := ../link/riscv64.ld
 ARCH_DIR := arch/riscv64
 endif

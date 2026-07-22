@@ -1,7 +1,7 @@
 # RISC-V 64-bit Architecture Makefile
 
 ARCH := riscv64
-CROSS_COMPILE := riscv64-elf-
+CROSS_COMPILE := riscv64-linux-gnu-
 CC := $(CROSS_COMPILE)gcc
 AS := $(CROSS_COMPILE)as
 LD := $(CROSS_COMPILE)ld
