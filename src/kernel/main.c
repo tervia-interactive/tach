@@ -1,4 +1,3 @@
-#include <kernel/types.h>
 /*
  * tach Operating System - Kernel Main Entry Point
  * Copyright 2026 Tervia Interactive™
@@ -8,8 +7,8 @@
 #include <kernel/types.h>
 #include <kernel/panic.h>
 #include <kernel/version.h>
-#include <hal/console.h>
-#include <hal/cpu.h>
+#include <hal/hal_console.h>
+#include <hal/hal_cpu.h>
 
 void kernel_main(void) {
     hal_console_early_init();
