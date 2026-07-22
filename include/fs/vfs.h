@@ -1,0 +1,49 @@
+/*
+ * fs/vfs.h - Virtual File System (inodes, dentries, file ops)
+ * Copyright 2026 Tervia Interactive™
+ * Licensed under Apache License 2.0
+ */
+#ifndef _FS_VFS_H
+#define _FS_VFS_H
+
+#include <kernel/types.h>
+
+#define VNODE_FILE  1
+#define VNODE_DIR   2
+#define VNODE_LINK  3
+#define VNODE_CHAR  4
+#define VNODE_BLOCK 5
+
+#define O_RDONLY 0x0000
+#define O_WRONLY 0x0001
+#define O_RDWR   0x0002
+#define O_CREAT  0x0200
+#define O_TRUNC  0x0400
+#define O_APPEND 0x0008
+
+struct vnode {
+    int type;
+    char* name;
+    struct vnode* parent;
+    void* data;
+    struct vnode_ops* ops;
+    size_t refcount;
+};
+
+struct vnode_ops {
+    int (*open)(struct vnode* vn, int flags);
+    int (*close)(struct vnode* vn);
+    ssize_t (*read)(struct vnode* vn, void* buf, size_t count, off_t offset);
+    ssize_t (*write)(struct vnode* vn, const void* buf, size_t count, off_t offset);
+    int (*readdir)(struct vnode* vn, struct dirent* entry);
+};
+
+void vfs_init(void);
+struct vnode* vfs_root(void);
+int vfs_mount(const char* path, struct vnode* root);
+struct vnode* vfs_open(const char* path, int flags);
+int vfs_close(struct vnode* vn);
+ssize_t vfs_read(struct vnode* vn, void* buf, size_t count, off_t offset);
+ssize_t vfs_write(struct vnode* vn, const void* buf, size_t count, off_t offset);
+
+#endif /* _FS_VFS_H */

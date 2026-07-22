@@ -1,0 +1,56 @@
+```
+# Build artifacts and compiled files
+*.o
+*.obj
+*.out
+*.bin
+*.img
+*.iso
+*.elf
+
+# Build directories
+build/
+dist/
+output/
+target/
+
+# Dependencies and packages
+node_modules/
+vendor/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Configuration and environment
+.env
+.env.local
+*.env.*
+
+# Coverage and testing
+coverage/
+htmlcov/
+.coverage
+
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+```
