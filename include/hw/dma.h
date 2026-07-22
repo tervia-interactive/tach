@@ -1,5 +1,4 @@
-/*
- * hw/dma.h - DMA controller abstraction
+/* hw/dma.h - DMA controller abstraction
  * Copyright 2026 Tervia Interactive™
  * Licensed under Apache License 2.0
  */

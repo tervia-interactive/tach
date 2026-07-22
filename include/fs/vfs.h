@@ -8,6 +8,14 @@
 
 #include <kernel/types.h>
 
+struct dirent {
+    uint32_t d_ino;
+    uint32_t d_off;
+    uint16_t d_reclen;
+    uint8_t d_type;
+    char d_name[256];
+};
+
 #define VNODE_FILE  1
 #define VNODE_DIR   2
 #define VNODE_LINK  3
