@@ -42,7 +42,7 @@ endif
 
 ifeq ($(ARCH),riscv32)
     TARGET := riscv32-unknown-elf
-    CROSS_COMPILE := riscv32-unknown-elf-
+    CROSS_COMPILE := riscv64-linux-gnu-
     LINKER_SCRIPT := link/riscv32.ld
     CFLAGS_ARCH := -march=rv32imac -mabi=ilp32
     ASMFLAGS_ARCH := 
@@ -50,7 +50,7 @@ endif
 
 ifeq ($(ARCH),riscv64)
     TARGET := riscv64-unknown-elf
-    CROSS_COMPILE := riscv64-unknown-elf-
+    CROSS_COMPILE := riscv64-linux-gnu-
     LINKER_SCRIPT := link/riscv64.ld
     CFLAGS_ARCH := -march=rv64imac -mabi=lp64
     ASMFLAGS_ARCH := 
