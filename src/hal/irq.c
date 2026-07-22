@@ -1,5 +1,12 @@
+/* tach Operating System - HAL IRQ Implementation */
 #include <kernel/types.h>
 #include <hal/hal_irq.h>
+
 void hal_irq_enable(void) {}
 void hal_irq_disable(void) {}
-int hal_irq_register(int irq, void (*handler)(void)) {(void)irq;(void)handler; return 0;}
+int hal_irq_register(int irq, irq_handler_t handler, void* arg) {
+    (void)irq;
+    (void)handler;
+    (void)arg;
+    return 0;
+}
