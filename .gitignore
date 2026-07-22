@@ -1,35 +1,32 @@
 ```
-# Build artifacts
+# Compiled and build artifacts
 *.o
 *.obj
 *.out
 build/
 dist/
-target/
 
 # Dependencies
 node_modules/
-venv/
 .venv/
+venv/
 __pycache__/
 .mypy_cache/
 .pytest_cache/
-.gradle/
 
-# Logs and temporary files
+# Logs and temp files
 *.log
 *.tmp
 *.swp
-*.swo
 
-# Environment files
+# Editors
+.vscode/
+.idea/
+
+# Environment
 .env
 .env.local
 *.env.*
-
-# Editors/IDE
-.vscode/
-.idea/
 
 # System files
 .DS_Store

@@ -1,6 +1,6 @@
 #include <kernel/types.h>
 /* HAL CPU Dispatcher */
-#include <hal/cpu.h>
+#include <hal/hal_cpu.h>
 
 void hal_cpu_halt(void) {
     /* Architecture-specific halt */
