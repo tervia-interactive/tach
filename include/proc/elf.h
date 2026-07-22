@@ -7,6 +7,7 @@
 #define _PROC_ELF_H
 
 #include <kernel/types.h>
+#include <proc/process.h>
 
 #define ELF_MAGIC "\x7fELF"
 #define ELF_CLASS_32 1

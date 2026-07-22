@@ -8,6 +8,9 @@
 
 #include <kernel/types.h>
 
+/* Forward declaration to avoid circular dependency with proc/process.h */
+struct process;
+
 #define VMM_PRESENT  (1 << 0)
 #define VMM_WRITABLE (1 << 1)
 #define VMM_USER     (1 << 2)
