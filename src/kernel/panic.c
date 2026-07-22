@@ -7,8 +7,8 @@
 
 #include <kernel/panic.h>
 #include <kernel/types.h>
-#include <hal/hal_console.h>
-#include <hal/hal_cpu.h>
+#include <hal/console.h>
+#include <hal/cpu.h>
 
 void kernel_panic(const char *message) {
     hal_console_putchar('\n');

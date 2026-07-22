@@ -1,17 +1,11 @@
-#ifndef DRIVERS_VIDEO_FONT_PSF_H
-#define DRIVERS_VIDEO_FONT_PSF_H
+/* tach Operating System - PSF Font Header */
+#ifndef _DRIVERS_FONT_PSF_H
+#define _DRIVERS_FONT_PSF_H
 
 #include <kernel/types.h>
+#include <stdint.h>
 
-#define PSF1_MAGIC 0x0436
-#define PSF2_MAGIC 0x864ab572
-
-typedef struct {
-    uint16_t magic;
-    uint8_t mode;
-    uint8_t charsize;
-} psf1_header_t;
-
+/* PSF font header structure */
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -21,11 +15,12 @@ typedef struct {
     uint32_t bytesperglyph;
     uint32_t height;
     uint32_t width;
-} psf2_header_t;
+} psf_font_t;
 
-int font_psf_init(const void *font_data, size_t font_size);
-const uint8_t *font_psf_get_glyph(uint32_t c);
-int font_psf_get_width(void);
-int font_psf_get_height(void);
+/* Load PSF font */
+int psf_load(const void* data, size_t size, psf_font_t* font);
 
-#endif /* DRIVERS_VIDEO_FONT_PSF_H */
+/* Get glyph bitmap */
+const uint8_t* psf_get_glyph(psf_font_t* font, uint32_t index);
+
+#endif /* _DRIVERS_FONT_PSF_H */

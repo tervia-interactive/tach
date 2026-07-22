@@ -1,26 +1,22 @@
-#ifndef TERM_SHELL_H
-#define TERM_SHELL_H
+/* tach Operating System - Shell Header */
+#ifndef _TERM_SHELL_H
+#define _TERM_SHELL_H
 
 #include <kernel/types.h>
 
-#define SHELL_MAX_CMD_LEN 256
-#define SHELL_MAX_ARGS 16
-
+/* Shell structure */
 typedef struct {
-    char *cmd;
-    int (*handler)(int argc, char **argv);
-    const char *description;
-} shell_command_t;
-
-typedef struct {
-    char buffer[SHELL_MAX_CMD_LEN];
-    size_t buffer_pos;
-    int running;
+    const char* prompt;
+    bool running;
 } shell_t;
 
-int shell_init(shell_t *shell);
-void shell_run(shell_t *shell);
-void shell_register_command(const char *cmd, int (*handler)(int argc, char **argv), const char *desc);
-void shell_print_prompt(shell_t *shell);
+/* Initialize shell */
+void shell_init(shell_t* sh, const char* prompt);
 
-#endif /* TERM_SHELL_H */
+/* Run shell main loop */
+void shell_run(shell_t* sh);
+
+/* Execute command */
+int shell_exec(const char* cmd, const char** argv);
+
+#endif /* _TERM_SHELL_H */

@@ -7,8 +7,8 @@
 #include <kernel/types.h>
 #include <kernel/panic.h>
 #include <kernel/version.h>
-#include <hal/hal_console.h>
-#include <hal/hal_cpu.h>
+#include <hal/console.h>
+#include <hal/cpu.h>
 
 void kernel_main(void) {
     hal_console_early_init();

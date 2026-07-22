@@ -1,6 +1,6 @@
 /* RISC-V 32-bit PLIC (Platform-Level Interrupt Controller) */
 
-#include <hal/hal_irq.h>
+#include <hal/irq.h>
 #include <kernel/types.h>
 
 #define PLIC_BASE 0x0C000000

@@ -1,28 +1,36 @@
-#ifndef TERM_VTERM_H
-#define TERM_VTERM_H
+/* tach Operating System - Virtual Terminal Header */
+#ifndef _TERM_VTERM_H
+#define _TERM_VTERM_H
 
 #include <kernel/types.h>
+#include <stdint.h>
 
+/* Virtual terminal dimensions */
 #define VTERM_WIDTH 80
 #define VTERM_HEIGHT 25
-#define VTERM_SCROLLBACK_SIZE 1000
+#define VTERM_SCROLLBACK 1000
 
+/* Virtual terminal structure */
 typedef struct {
+    uint16_t* buffer;
     int cursor_x;
     int cursor_y;
+    int scroll_start;
+    int scroll_end;
     uint8_t fg_color;
     uint8_t bg_color;
-    char *scrollback_buffer;
-    size_t scrollback_pos;
-    size_t scrollback_size;
 } vterm_t;
 
-int vterm_init(vterm_t *vterm);
-void vterm_putchar(vterm_t *vterm, char c);
-void vterm_print(vterm_t *vterm, const char *str);
-void vterm_clear(vterm_t *vterm);
-void vterm_set_color(vterm_t *vterm, uint8_t fg, uint8_t bg);
-void vterm_scroll_up(vterm_t *vterm);
-void vterm_move_cursor(vterm_t *vterm, int x, int y);
+/* Initialize virtual terminal */
+void vterm_init(vterm_t* vt);
 
-#endif /* TERM_VTERM_H */
+/* Put character on virtual terminal */
+void vterm_putchar(vterm_t* vt, char c);
+
+/* Clear virtual terminal */
+void vterm_clear(vterm_t* vt);
+
+/* Scroll virtual terminal */
+void vterm_scroll(vterm_t* vt, int lines);
+
+#endif /* _TERM_VTERM_H */

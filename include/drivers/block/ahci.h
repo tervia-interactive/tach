@@ -1,22 +1,38 @@
-#ifndef DRIVERS_BLOCK_AHCI_H
-#define DRIVERS_BLOCK_AHCI_H
+/* tach Operating System - AHCI Header */
+#ifndef _DRIVERS_AHCI_H
+#define _DRIVERS_AHCI_H
 
 #include <kernel/types.h>
+#include <stdint.h>
 
-#define AHCI_SECTOR_SIZE 512
-#define AHCI_MAX_PORTS 32
+/* AHCI port types */
+#define AHCI_PORT_NONE 0
+#define AHCI_PORT_SATA 1
+#define AHCI_PORT_PM 2
+#define AHCI_PORT_SATAPI 3
 
+/* AHCI HBA structure (simplified) */
 typedef struct {
-    uint8_t present;
+    void* mmio_base;
+    uint32_t port_map;
+    uint8_t num_ports;
+} ahci_hba_t;
+
+/* AHCI port structure */
+typedef struct {
+    ahci_hba_t* hba;
+    uint8_t port_num;
     uint8_t type;
-    uint32_t sectors;
-    char model[41];
-    char serial[21];
+    bool present;
 } ahci_port_t;
 
+/* Initialize AHCI controller */
 int ahci_init(void);
-int ahci_read_sector(uint8_t port, uint32_t lba, void *buffer);
-int ahci_write_sector(uint8_t port, uint32_t lba, const void *buffer);
-ahci_port_t *ahci_get_port(uint8_t port);
 
-#endif /* DRIVERS_BLOCK_AHCI_H */
+/* Read sectors from AHCI port */
+int ahci_read_sector(ahci_port_t* port, uint32_t lba, uint8_t* buffer);
+
+/* Write sectors to AHCI port */
+int ahci_write_sector(ahci_port_t* port, uint32_t lba, const uint8_t* buffer);
+
+#endif /* _DRIVERS_AHCI_H */

@@ -1,64 +1,26 @@
 /* tach Operating System - Semaphore Implementation */
-#include <kernel/types.h>
-#include <kernel/sem.h>
+#include <ipc/sem.h>
+#include <kernel/assert.h>
 
-/* Simple counting semaphore implementation */
-static sem_handle_t next_handle = 1;
-static int sem_values[256];
-static bool sem_initialized[256];
-
-sem_handle_t sem_create(int initial_value) {
-    if (next_handle >= 256) {
-        return 0; /* Error: no more handles */
-    }
-    sem_handle_t handle = next_handle++;
-    sem_values[handle] = initial_value;
-    sem_initialized[handle] = true;
-    return handle;
+void sem_init(sem_t *s, int32_t value) {
+    KASSERT(s != NULL);
+    s->value = value;
+    s->waiters = 0;
 }
 
-int sem_acquire(sem_handle_t sem, uint32_t timeout_ms) {
-    (void)timeout_ms;
-    if (sem == 0 || sem >= 256 || !sem_initialized[sem]) {
-        return -1;
+void sem_acquire(sem_t *s) {
+    KASSERT(s != NULL);
+    /* TODO: Implement proper blocking when value is 0 */
+    while (s->value <= 0) {
+        s->waiters++;
+        /* TODO: Block current thread */
+        s->waiters--;
     }
-    while (sem_values[sem] <= 0) {
-        /* In real implementation, would block here */
-        __asm__ volatile("hlt");
-    }
-    sem_values[sem]--;
-    return 0;
+    s->value--;
 }
 
-int sem_release(sem_handle_t sem) {
-    if (sem == 0 || sem >= 256 || !sem_initialized[sem]) {
-        return -1;
-    }
-    sem_values[sem]++;
-    return 0;
-}
-
-int sem_tryacquire(sem_handle_t sem) {
-    if (sem == 0 || sem >= 256 || !sem_initialized[sem]) {
-        return -1;
-    }
-    if (sem_values[sem] <= 0) {
-        return -1;
-    }
-    sem_values[sem]--;
-    return 0;
-}
-
-int sem_get_value(sem_handle_t sem) {
-    if (sem == 0 || sem >= 256 || !sem_initialized[sem]) {
-        return -1;
-    }
-    return sem_values[sem];
-}
-
-void sem_destroy(sem_handle_t sem) {
-    if (sem == 0 || sem >= 256) {
-        return;
-    }
-    sem_initialized[sem] = false;
+void sem_release(sem_t *s) {
+    KASSERT(s != NULL);
+    s->value++;
+    /* TODO: Wake up a waiter if any */
 }

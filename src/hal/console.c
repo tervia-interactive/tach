@@ -4,7 +4,7 @@
  * Copyright 2026 Tervia Interactive™
  */
 
-#include <hal/hal_console.h>
+#include <hal/console.h>
 
 void hal_console_early_init(void) {
     /* Architecture-specific early console init */
