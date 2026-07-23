@@ -37,7 +37,7 @@ LIB_DIR := $(BUILD_DIR)/lib
 BIN_DIR := $(BUILD_DIR)/bin
 
 # Library sources
-LIB_SRCS := string.c printf.c malloc.c syscall.c ctype.c
+LIB_SRCS := string.c printf.c malloc.c syscall.c ctype.c stdio.c stdlib.c
 LIB_OBJS := $(patsubst %.c,$(LIB_DIR)/%.o,$(LIB_SRCS))
 LIB_STATIC := $(LIB_DIR)/libtach.a
 

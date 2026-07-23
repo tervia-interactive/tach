@@ -20,52 +20,49 @@
 #define SYS_CLOSE     6
 
 /* Architecture-specific syscall mechanism */
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__)
 
 static inline long syscall_noreturn(int num, unsigned long arg1) {
-#if defined(__x86_64__)
     __asm__ volatile (
-        "movq %0, %%rax\n\t"
-        "movq %1, %%rdi\n\t"
         "syscall\n\t"
         :
-        : "r"(num), "r"(arg1)
-        : "rax", "rdi", "memory"
+        : "a"(num), "D"(arg1)
+        : "rcx", "r11", "memory"
     );
-#else
-    __asm__ volatile (
-        "movl %0, %%eax\n\t"
-        "movl %1, %%ebx\n\t"
-        "int $0x80\n\t"
-        :
-        : "r"(num), "r"(arg1)
-        : "eax", "ebx", "memory"
-    );
-#endif
     __builtin_unreachable();
 }
 
 static inline long syscall1(int num, unsigned long arg1) {
     long ret;
-#if defined(__x86_64__)
     __asm__ volatile (
-        "movq %0, %%rax\n\t"
-        "movq %1, %%rdi\n\t"
         "syscall\n\t"
         : "=a"(ret)
-        : "r"(num), "r"(arg1)
-        : "rdi", "memory"
+        : "a"(num), "D"(arg1)
+        : "rcx", "r11", "memory"
     );
-#else
+    return ret;
+}
+
+#elif defined(__i386__)
+
+static inline long syscall_noreturn(int num, unsigned long arg1) {
     __asm__ volatile (
-        "movl %0, %%eax\n\t"
-        "movl %1, %%ebx\n\t"
+        "int $0x80\n\t"
+        :
+        : "a"(num), "b"(arg1)
+        : "memory"
+    );
+    __builtin_unreachable();
+}
+
+static inline long syscall1(int num, unsigned long arg1) {
+    long ret;
+    __asm__ volatile (
         "int $0x80\n\t"
         : "=a"(ret)
-        : "r"(num), "r"(arg1)
-        : "ebx", "memory"
+        : "a"(num), "b"(arg1)
+        : "memory"
     );
-#endif
     return ret;
 }
 

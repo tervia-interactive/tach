@@ -28,9 +28,9 @@ extern FILE *stdout;
 extern FILE *stderr;
 
 int printf(const char *format, ...);
-int fprintf(FILE *stream, const char *format, ...);
+int fprintf(int fd, const char *format, ...);
 int vprintf(const char *format, va_list ap);
-int vfprintf(FILE *stream, const char *format, va_list ap);
+int vfprintf(int fd, const char *format, va_list ap);
 
 int putchar(int c);
 int puts(const char *s);

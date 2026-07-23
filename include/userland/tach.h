@@ -14,7 +14,6 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <sys/types.h>
 
 /* ============================================
  * Standard Types
@@ -28,11 +27,10 @@
 #define EOF (-1)
 #endif
 
-/* File descriptor types */
+/* Basic types - defined locally to avoid system header dependencies */
 typedef int fd_t;
-
-/* Process ID type */
 typedef int pid_t;
+typedef long ssize_t;
 
 /* ============================================
  * Standard I/O Streams
