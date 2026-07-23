@@ -46,6 +46,9 @@ SRC_DIRS := kernel sync ipc hal boot hw mm proc fs term lib
 SRC_DIRS += drivers/char drivers/video drivers/input drivers/block
 SRC_DIRS += arch/$(ARCH)
 
+# Add userland to build
+USERLAND_DIR := $(ROOTDIR)/userland
+
 C_SOURCES := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.c))
 ASM_SOURCES := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.S))
 
@@ -81,6 +84,8 @@ $(OBJ_DIR)/%.o: %.S
 
 $(KERNEL_BIN): $(OBJECTS)
 	$(LD) $(LDFLAGS) -o $@ $(OBJECTS)
+	@echo "Building userland..."
+	$(MAKE) -C $(USERLAND_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
 
 iso: $(KERNEL_BIN)
 ifeq ($(filter $(ARCH),i686 x86_64),)
@@ -98,6 +103,7 @@ else
 	}
 	mkdir -p $(BUILD_DIR)/iso/boot/grub
 	cp $(KERNEL_BIN) $(BUILD_DIR)/iso/boot/tach.bin
+	cp -r $(USERLAND_DIR)/build/$(ARCH)/bin $(BUILD_DIR)/iso/boot/bin
 	echo "set timeout=3" > $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	echo "set default=0" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	echo "" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
@@ -113,5 +119,6 @@ clean:
 	rm -rf $(BUILD_DIR)
 	find . -name "*.o" -delete
 	find . -name "*.bin" -delete
+	$(MAKE) -C $(USERLAND_DIR) clean
 
 .PHONY: all clean iso
