@@ -1,4 +1,4 @@
-/* tach Operating System - Watchdog Header */
+/* tach - Watchdog Header */
 /* Supervised-process watchdog (used to keep tachd alive) */
 
 #ifndef _KERNEL_WATCHDOG_H

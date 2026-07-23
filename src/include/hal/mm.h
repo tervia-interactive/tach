@@ -1,4 +1,4 @@
-/* tach Operating System - HAL MM Header */
+/* tach - HAL MM Header */
 
 #ifndef _HAL_MM_H
 #define _HAL_MM_H

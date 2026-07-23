@@ -1,4 +1,4 @@
-/* tach Operating System - RTC Header */
+/* tach - RTC Header */
 #ifndef _DRIVERS_RTC_H
 #define _DRIVERS_RTC_H
 

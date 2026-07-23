@@ -1,4 +1,4 @@
-/* tach Operating System - HAL MM Implementation */
+/* tach - HAL MM Implementation */
 #include <kernel/types.h>
 #include <kernel/compiler.h>
 #include <hal/mm.h>

@@ -1,4 +1,4 @@
-/* tach Operating System - Mutex Header */
+/* tach - Mutex Header */
 /* Sleeping mutex for kernel code paths that may block */
 
 #ifndef _KERNEL_MUTEX_H

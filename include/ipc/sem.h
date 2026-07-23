@@ -1,4 +1,4 @@
-/* tach Operating System - Semaphore Header */
+/* tach - Semaphore Header */
 #ifndef _IPC_SEM_H
 #define _IPC_SEM_H
 

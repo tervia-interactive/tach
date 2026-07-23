@@ -1,4 +1,4 @@
-/* tach Operating System - Kernel Panic Header */
+/* tach - Kernel Panic Header */
 /* Kernel panic functionality */
 
 #ifndef _KERNEL_PANIC_H

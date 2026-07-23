@@ -1,4 +1,4 @@
-# Tach OS Configuration
+# tach Configuration
 
 # Default architecture
 ARCH ?= x86_64

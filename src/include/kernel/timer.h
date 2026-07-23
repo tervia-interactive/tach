@@ -1,4 +1,4 @@
-/* tach Operating System - Timer Header */
+/* tach - Timer Header */
 /* Kernel timer wheel — timeouts, delayed work */
 
 #ifndef _KERNEL_TIMER_H

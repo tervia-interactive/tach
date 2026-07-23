@@ -1,4 +1,4 @@
-# Tach OS Root Makefile
+# tach Root Makefile
 
 include Config.mk
 

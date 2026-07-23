@@ -1,4 +1,4 @@
-/* tach Operating System - i686 Linker Script */
+/* tach - i686 Linker Script */
 /* 32-bit x86 kernel linked at 1M (0x00100000) */
 
 ENTRY(_start)

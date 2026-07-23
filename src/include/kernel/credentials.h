@@ -1,4 +1,4 @@
-/* tach Operating System - Credentials Header */
+/* tach - Credentials Header */
 /* uid/gid/permission struct carried per-process */
 
 #ifndef _KERNEL_CREDENTIALS_H

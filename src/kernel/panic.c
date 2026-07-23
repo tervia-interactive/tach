@@ -1,6 +1,6 @@
 #include <kernel/types.h>
 /*
- * tach Operating System - Kernel Panic Handler
+ * tach - Kernel Panic Handler
  * Copyright 2026 Tervia Interactive™
  * Licensed under Apache License 2.0
  */

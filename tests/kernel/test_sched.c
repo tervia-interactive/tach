@@ -1,4 +1,4 @@
-/* tach Operating System - Scheduler Test */
+/* tach - Scheduler Test */
 /* Scheduler fairness / no-starvation checks */
 
 #include "kernel/types.h"

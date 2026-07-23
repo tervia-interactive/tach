@@ -1,4 +1,4 @@
-/* tach Operating System - HAL I/O Implementation */
+/* tach - HAL I/O Implementation */
 #include <kernel/types.h>
 #include <hal/io.h>
 

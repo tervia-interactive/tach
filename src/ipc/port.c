@@ -1,4 +1,4 @@
-/* tach Operating System - Port Implementation */
+/* tach - Port Implementation */
 
 #include <kernel/types.h>
 #include <kernel/port.h>

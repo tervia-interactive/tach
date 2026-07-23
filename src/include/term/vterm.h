@@ -1,4 +1,4 @@
-/* tach Operating System - Virtual Terminal Header */
+/* tach - Virtual Terminal Header */
 #ifndef _TERM_VTERM_H
 #define _TERM_VTERM_H
 

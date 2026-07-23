@@ -1,5 +1,5 @@
 #!/bin/bash
-# tach Operating System - Test Runner
+# tach - Test Runner
 # Builds with TACH_TEST=1 and runs ktest + userland tests
 
 set -e

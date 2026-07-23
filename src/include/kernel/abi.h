@@ -1,4 +1,4 @@
-/* tach Operating System - ABI Header */
+/* tach - ABI Header */
 /* Kernel<->userland contract: struct/syscall version numbers */
 
 #ifndef _KERNEL_ABI_H

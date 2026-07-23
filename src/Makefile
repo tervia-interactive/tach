@@ -1,4 +1,4 @@
-# Tach OS Source Makefile
+# tach Source Makefile
 
 ARCH ?= x86_64
 CURDIR := $(shell pwd)
@@ -18,7 +18,7 @@ ifeq ($(ARCH),i686)
     LINKER_SCRIPT := $(ROOTDIR)/link/i686.ld
 else ifeq ($(ARCH),x86_64)
     CROSS_COMPILE :=
-    ARCH_CFLAGS := -m64 -mno-red-zone -mcmodel=large
+    ARCH_CFLAGS := -m64 -mno-red-zone -mcmodel=large -mgeneral-regs-only
     LINKER_SCRIPT := $(ROOTDIR)/link/x86_64.ld
 else ifeq ($(ARCH),arm32)
     override CROSS_COMPILE := arm-linux-gnueabihf-
@@ -101,7 +101,7 @@ else
 	echo "set timeout=3" > $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	echo "set default=0" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	echo "" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
-	echo "menuentry \"tach OS\" {" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
+	echo "menuentry \"tach\" {" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	echo "  $(if $(filter $(ARCH),x86_64),multiboot2,multiboot) /boot/tach.bin" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	echo "  boot" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	echo "}" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg

@@ -1,4 +1,4 @@
-/* tach Operating System - Kqueue Header */
+/* tach - Kqueue Header */
 /* Unified event notification (BSD-kqueue style), used by tachd */
 
 #ifndef _KERNEL_KQUEUE_H

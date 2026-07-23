@@ -1,4 +1,4 @@
-/* tach Operating System - Per-CPU Data Header */
+/* tach - Per-CPU Data Header */
 /* Per-CPU data sections (required for real SMP support) */
 
 #ifndef _KERNEL_PERCPU_H

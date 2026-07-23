@@ -1,4 +1,4 @@
-/* tach Operating System - Semaphore Header */
+/* tach - Semaphore Header */
 /* Counting semaphores */
 
 #ifndef _KERNEL_SEM_H

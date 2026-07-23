@@ -1,4 +1,4 @@
-/* tach Operating System - HAL SMP Header */
+/* tach - HAL SMP Header */
 
 #ifndef _HAL_SMP_H
 #define _HAL_SMP_H

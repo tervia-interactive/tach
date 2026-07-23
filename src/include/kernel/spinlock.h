@@ -1,4 +1,4 @@
-/* tach Operating System - Spinlock Header */
+/* tach - Spinlock Header */
 /* Spinlocks for short critical sections (IRQ-safe variants) */
 
 #ifndef _KERNEL_SPINLOCK_H

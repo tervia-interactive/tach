@@ -1,4 +1,4 @@
-/* tach Operating System - ATA Header */
+/* tach - ATA Header */
 #ifndef _DRIVERS_ATA_H
 #define _DRIVERS_ATA_H
 

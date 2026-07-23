@@ -1,4 +1,4 @@
-/* tach Operating System - RISC-V 32-bit Linker Script */
+/* tach - RISC-V 32-bit Linker Script */
 /* RISC-V kernel linked at 0x80000000 (typical load address) */
 
 ENTRY(_start)

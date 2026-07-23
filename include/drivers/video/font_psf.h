@@ -1,4 +1,4 @@
-/* tach Operating System - PSF Font Header */
+/* tach - PSF Font Header */
 #ifndef _DRIVERS_FONT_PSF_H
 #define _DRIVERS_FONT_PSF_H
 

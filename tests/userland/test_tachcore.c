@@ -1,4 +1,4 @@
-/* tach Operating System - TachCore Test */
+/* tach - TachCore Test */
 /* TCObject refcounting, TCString, TCArray, TCDictionary */
 
 #include "TachCore/TCObject.h"

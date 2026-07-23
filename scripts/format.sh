@@ -1,5 +1,5 @@
 #!/bin/bash
-# tach Operating System - Code Formatter
+# tach - Code Formatter
 # Runs clang-format against the whole tree
 
 set -e

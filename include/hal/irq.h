@@ -1,4 +1,4 @@
-/* tach Operating System - HAL IRQ Header */
+/* tach - HAL IRQ Header */
 
 #ifndef _HAL_IRQ_H
 #define _HAL_IRQ_H

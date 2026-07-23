@@ -1,4 +1,4 @@
-name: Build Tach OS
+name: Build tach
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
         arch: [ i686, x86_64 ]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Install x86 toolchain and dependencies
       run: |
@@ -38,17 +38,17 @@ jobs:
       run: make iso ARCH=${{ matrix.arch }} CROSS_COMPILE=
 
     - name: Upload binary
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: tach-${{ matrix.arch }}-kernel
-        path: build/${{ matrix.arch }}/tach.bin
+        path: src/build/${{ matrix.arch }}/tach.bin
         retention-days: 30
 
     - name: Upload ISO
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: tach-${{ matrix.arch }}-iso
-        path: build/${{ matrix.arch }}/tach.iso
+        path: src/build/${{ matrix.arch }}/tach.iso
         retention-days: 30
 
   build-arm:
@@ -58,7 +58,7 @@ jobs:
         arch: [ arm32, aarch64 ]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Install ARM toolchain
       run: |
@@ -78,10 +78,10 @@ jobs:
         fi
 
     - name: Upload binary
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: tach-${{ matrix.arch }}-kernel
-        path: build/${{ matrix.arch }}/tach.bin
+        path: src/build/${{ matrix.arch }}/tach.bin
         retention-days: 30
 
   build-riscv:
@@ -92,7 +92,7 @@ jobs:
     continue-on-error: true
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Install RISC-V toolchain (optional)
       run: |
@@ -112,10 +112,10 @@ jobs:
         fi
 
     - name: Upload binary (if exists)
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: tach-${{ matrix.arch }}-kernel
-        path: build/${{ matrix.arch }}/tach.bin
+        path: src/build/${{ matrix.arch }}/tach.bin
         retention-days: 30
         if-no-files-found: ignore
       if: always()
@@ -126,10 +126,10 @@ jobs:
     if: github.event_name == 'release'
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         path: artifacts
 

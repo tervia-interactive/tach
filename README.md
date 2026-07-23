@@ -1,4 +1,4 @@
-# tach Operating System
+# tach
 
 A stable, minimal operating system written in C with support for multiple architectures.
 

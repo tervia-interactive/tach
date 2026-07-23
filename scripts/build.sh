@@ -1,5 +1,5 @@
 #!/bin/bash
-# tach Operating System - Build Script
+# tach - Build Script
 # One-shot build for a given ARCH
 
 set -e

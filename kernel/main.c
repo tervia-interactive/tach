@@ -34,7 +34,7 @@ void kernel_init(void) {
 void kernel_main(void) {
     kernel_init();
     
-    vga_println("Welcome to tach Operating System");
+    vga_println("Welcome to tach");
     vga_println("Version: 0.1.0-dev");
     vga_println("");
     vga_println("System initialized successfully.");

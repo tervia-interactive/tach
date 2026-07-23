@@ -1,4 +1,4 @@
-/* tach Operating System - IPC Test */
+/* tach - IPC Test */
 /* Port/message delivery, backpressure, ordering */
 
 #include "kernel/types.h"

@@ -1,4 +1,4 @@
-/* tach Operating System - Reader/Writer Lock Header */
+/* tach - Reader/Writer Lock Header */
 
 #ifndef _KERNEL_RWLOCK_H
 #define _KERNEL_RWLOCK_H

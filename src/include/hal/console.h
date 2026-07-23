@@ -1,4 +1,4 @@
-/* tach Operating System - HAL Console Header */
+/* tach - HAL Console Header */
 
 #ifndef _HAL_CONSOLE_H
 #define _HAL_CONSOLE_H

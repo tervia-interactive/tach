@@ -1,4 +1,4 @@
-/* tach Operating System - x86_64 Linker Script */
+/* tach - x86_64 Linker Script */
 /* 64-bit x86 kernel linked at 1M (0x00100000) */
 
 ENTRY(_start)

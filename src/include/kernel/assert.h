@@ -1,4 +1,4 @@
-/* tach Operating System - Assert Header */
+/* tach - Assert Header */
 /* KASSERT()/KASSERT_MSG() — panics on invariant violation */
 
 #ifndef _KERNEL_ASSERT_H

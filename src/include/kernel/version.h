@@ -1,4 +1,4 @@
-/* tach Operating System - Version Header */
+/* tach - Version Header */
 /* Kernel build/version info (backs `uname`) */
 
 #ifndef _KERNEL_VERSION_H

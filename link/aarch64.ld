@@ -1,4 +1,4 @@
-/* tach Operating System - AArch64 Linker Script */
+/* tach - AArch64 Linker Script */
 /* ARM 64-bit kernel linked at 0x00080000 (typical load address) */
 
 ENTRY(_start)

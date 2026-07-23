@@ -1,4 +1,4 @@
-/* tach Operating System - Error Codes Header */
+/* tach - Error Codes Header */
 /* Standardized kernel error codes (stable ABI) */
 
 #ifndef _KERNEL_ERRNO_H

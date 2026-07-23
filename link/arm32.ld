@@ -1,4 +1,4 @@
-/* tach Operating System - ARM 32-bit Linker Script */
+/* tach - ARM 32-bit Linker Script */
 /* ARM kernel linked at 0x00010000 (typical load address) */
 
 ENTRY(_start)

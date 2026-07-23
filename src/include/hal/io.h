@@ -1,4 +1,4 @@
-/* tach Operating System - HAL IO Header */
+/* tach - HAL IO Header */
 
 #ifndef _HAL_IO_H
 #define _HAL_IO_H

@@ -1,4 +1,4 @@
-/* tach Operating System - Signal Test */
+/* tach - Signal Test */
 /* Signal delivery and default dispositions */
 
 #include "kernel/types.h"

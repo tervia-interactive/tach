@@ -1,4 +1,4 @@
-/* tach Operating System - AHCI Header */
+/* tach - AHCI Header */
 #ifndef _DRIVERS_AHCI_H
 #define _DRIVERS_AHCI_H
 

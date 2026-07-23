@@ -1,5 +1,5 @@
 #!/bin/bash
-# tach Operating System - QEMU Runner
+# tach - QEMU Runner
 # Boots the built image in QEMU per architecture
 
 set -e

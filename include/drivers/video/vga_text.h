@@ -1,4 +1,4 @@
-/* tach Operating System - VGA Text Mode Header */
+/* tach - VGA Text Mode Header */
 #ifndef _DRIVERS_VGA_TEXT_H
 #define _DRIVERS_VGA_TEXT_H
 
@@ -43,5 +43,13 @@ void vga_putchar(char c, int x, int y, vga_color_t fg, vga_color_t bg);
 
 /* Print string at position */
 void vga_print(const char* str, int x, int y, vga_color_t fg, vga_color_t bg);
+
+/* Set the fg/bg colors used by vga_putc() from here on. */
+void vga_set_color(vga_color_t fg, vga_color_t bg);
+
+/* Write one character at the current cursor position, terminal-style:
+ * advances the cursor, wraps at end of line, scrolls at end of screen,
+ * and honors '\n'/'\r'. This is what hal_console_putchar() drives. */
+void vga_putc(char c);
 
 #endif /* _DRIVERS_VGA_TEXT_H */

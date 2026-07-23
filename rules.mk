@@ -1,4 +1,4 @@
-# tach Operating System - Generic Build Rules
+# tach - Generic Build Rules
 # Common rules for compiling C and Assembly files
 
 # Rule to compile C files to object files

@@ -1,4 +1,4 @@
-/* tach Operating System - libc Test */
+/* tach - libc Test */
 /* malloc/free, string.h, stdio.h behavior */
 
 #include <stdio.h>

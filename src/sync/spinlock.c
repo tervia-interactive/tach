@@ -1,4 +1,4 @@
-/* tach Operating System - Spinlock Implementation */
+/* tach - Spinlock Implementation */
 #include <kernel/types.h>
 #include <kernel/spinlock.h>
 #include <kernel/atomic.h>

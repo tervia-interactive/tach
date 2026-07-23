@@ -1,4 +1,4 @@
-/* tach Operating System - Kernel Types Header */
+/* tach - Kernel Types Header */
 /* Standardized types for the kernel */
 
 #ifndef _KERNEL_TYPES_H

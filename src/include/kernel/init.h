@@ -1,4 +1,4 @@
-/* tach Operating System - Initialization Header */
+/* tach - Initialization Header */
 /* Ordered initialization macros */
 
 #ifndef _KERNEL_INIT_H

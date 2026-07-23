@@ -37,7 +37,7 @@ $(ISO): $(KERNEL_BIN)
 	echo 'set timeout=3' > $(CURDIR)/isotmp/$(ARCH)/boot/grub/grub.cfg
 	echo 'set default=0' >> $(CURDIR)/isotmp/$(ARCH)/boot/grub/grub.cfg
 	echo '' >> $(CURDIR)/isotmp/$(ARCH)/boot/grub/grub.cfg
-	echo 'menuentry "tach OS" {' >> $(CURDIR)/isotmp/$(ARCH)/boot/grub/grub.cfg
+	echo 'menuentry "tach" {' >> $(CURDIR)/isotmp/$(ARCH)/boot/grub/grub.cfg
 	echo '    multiboot /boot/tach.bin' >> $(CURDIR)/isotmp/$(ARCH)/boot/grub/grub.cfg
 	echo '    boot' >> $(CURDIR)/isotmp/$(ARCH)/boot/grub/grub.cfg
 	echo '}' >> $(CURDIR)/isotmp/$(ARCH)/boot/grub/grub.cfg

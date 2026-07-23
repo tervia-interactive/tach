@@ -1,4 +1,4 @@
-/* tach Operating System - Semaphore Implementation */
+/* tach - Semaphore Implementation */
 #include <ipc/sem.h>
 #include <kernel/assert.h>
 

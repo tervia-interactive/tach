@@ -1,4 +1,4 @@
-/* tach Operating System - TTY Header */
+/* tach - TTY Header */
 #ifndef _TERM_TTY_H
 #define _TERM_TTY_H
 

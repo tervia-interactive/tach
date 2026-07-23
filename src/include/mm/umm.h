@@ -1,4 +1,4 @@
-/* tach Operating System - User Memory Manager Header */
+/* tach - User Memory Manager Header */
 #ifndef _MM_UMM_H
 #define _MM_UMM_H
 

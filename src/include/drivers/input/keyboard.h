@@ -1,4 +1,4 @@
-/* tach Operating System - Keyboard Header */
+/* tach - Keyboard Header */
 #ifndef _DRIVERS_KEYBOARD_H
 #define _DRIVERS_KEYBOARD_H
 

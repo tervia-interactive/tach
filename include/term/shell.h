@@ -1,4 +1,4 @@
-/* tach Operating System - Shell Header */
+/* tach - Shell Header */
 #ifndef _TERM_SHELL_H
 #define _TERM_SHELL_H
 

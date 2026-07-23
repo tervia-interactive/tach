@@ -1,4 +1,4 @@
-/* tach Operating System - Atomic Operations Header */
+/* tach - Atomic Operations Header */
 /* Atomic ops (CAS, fetch-add, load/store-acquire) — SMP safety */
 
 #ifndef _KERNEL_ATOMIC_H

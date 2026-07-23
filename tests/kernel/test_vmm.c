@@ -1,4 +1,4 @@
-/* tach Operating System - VMM Test */
+/* tach - VMM Test */
 /* Page mapping, page fault handling */
 
 #include "kernel/types.h"

@@ -1,4 +1,4 @@
-/* tach Operating System - ELF Loader Implementation */
+/* tach - ELF Loader Implementation */
 #include <kernel/types.h>
 #include <proc/elf.h>
 #include <proc/process.h>

@@ -1,4 +1,4 @@
-/* tach Operating System - HAL CPU Header */
+/* tach - HAL CPU Header */
 
 #ifndef _HAL_CPU_H
 #define _HAL_CPU_H

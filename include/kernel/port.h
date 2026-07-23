@@ -1,4 +1,4 @@
-/* tach Operating System - Port Header */
+/* tach - Port Header */
 /* Kernel ports (lightweight message queues, XPC-style) */
 
 #ifndef _KERNEL_PORT_H

@@ -1,4 +1,4 @@
-/* tach Operating System - IPC Header */
+/* tach - IPC Header */
 /* Message primitive shared struct */
 
 #ifndef _KERNEL_IPC_H

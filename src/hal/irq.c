@@ -1,4 +1,4 @@
-/* tach Operating System - HAL IRQ Implementation */
+/* tach - HAL IRQ Implementation */
 #include <kernel/types.h>
 #include <hal/irq.h>
 

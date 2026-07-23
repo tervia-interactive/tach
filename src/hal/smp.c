@@ -1,4 +1,4 @@
-/* tach Operating System - HAL SMP Implementation */
+/* tach - HAL SMP Implementation */
 #include <kernel/types.h>
 #include <hal/smp.h>
 

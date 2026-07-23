@@ -1,4 +1,4 @@
-/* tach Operating System - Compiler Macros Header */
+/* tach - Compiler Macros Header */
 /* Build macros for compiler-specific features */
 
 #ifndef _KERNEL_COMPILER_H

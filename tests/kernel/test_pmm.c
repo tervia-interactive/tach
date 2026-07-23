@@ -1,4 +1,4 @@
-/* tach Operating System - PMM Test */
+/* tach - PMM Test */
 /* Physical memory manager correctness (alloc/free/fragmentation) */
 
 #include "kernel/types.h"

@@ -1,4 +1,4 @@
-/* tach Operating System - Signal Header */
+/* tach - Signal Header */
 /* POSIX-style signals (SIGKILL, SIGTERM, SIGCHLD, ...) */
 
 #ifndef _KERNEL_SIGNAL_H

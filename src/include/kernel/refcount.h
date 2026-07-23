@@ -1,4 +1,4 @@
-/* tach Operating System - Reference Counting Header */
+/* tach - Reference Counting Header */
 /* Kernel-side reference counting helper (used by VFS, proc) */
 
 #ifndef _KERNEL_REFCOUNT_H

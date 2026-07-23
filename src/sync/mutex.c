@@ -1,4 +1,4 @@
-/* tach Operating System - Mutex Implementation */
+/* tach - Mutex Implementation */
 #include <kernel/types.h>
 #include <kernel/mutex.h>
 #include <kernel/atomic.h>

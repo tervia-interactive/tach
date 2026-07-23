@@ -1,4 +1,4 @@
-/* tach Operating System - Reader/Writer Lock Implementation */
+/* tach - Reader/Writer Lock Implementation */
 #include <kernel/types.h>
 #include <kernel/rwlock.h>
 #include <kernel/atomic.h>

@@ -1,4 +1,4 @@
-/* tach Operating System - HAL Time Header */
+/* tach - HAL Time Header */
 
 #ifndef _HAL_TIME_H
 #define _HAL_TIME_H

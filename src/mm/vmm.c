@@ -1,4 +1,4 @@
-/* tach Operating System - Virtual Memory Manager Implementation */
+/* tach - Virtual Memory Manager Implementation */
 #include <kernel/types.h>
 #include <kernel/assert.h>
 #include <mm/vmm.h>
