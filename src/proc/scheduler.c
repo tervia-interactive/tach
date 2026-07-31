@@ -48,7 +48,10 @@ struct process* scheduler_pick_next(void) {
     }
     for (size_t checked = 0; checked < g_runqueue_count; checked++) {
         struct process* proc = g_runqueue[g_next_index];
-        g_next_index = (g_next_index + 1) % g_runqueue_count;
+        g_next_index++;
+        if (g_next_index >= g_runqueue_count) {
+            g_next_index = 0;
+        }
         if (proc && proc->state == PROCESS_STATE_RUNNING) {
             return proc;
         }
