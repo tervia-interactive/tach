@@ -20,5 +20,8 @@ void hal_mmu_init(void);
 int hal_mmu_map(uintptr_t virt, uintptr_t phys, size_t size, uint32_t flags);
 int hal_mmu_unmap(uintptr_t virt, size_t size);
 int hal_get_memmap(mem_region_t* regions, int max_regions);
+void hal_memmap_reset(void);
+int hal_memmap_add(uint64_t base, uint64_t size, uint32_t type);
+void hal_memmap_use_platform_fallback(void);
 
 #endif /* _HAL_MM_H */

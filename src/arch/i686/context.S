@@ -1,25 +1,17 @@
 .global task_switch
 .type task_switch, @function
-
 task_switch:
-    pushal
-    pushl %ds
-    pushl %es
-    pushl %fs
-    pushl %gs
-    
-    movl 44(%esp), %eax
+    pushl %ebx
+    pushl %esi
+    pushl %edi
+    pushl %ebp
+    movl 20(%esp), %eax
     movl %esp, (%eax)
-    
-    movl 44(%esp), %eax
+    movl 24(%esp), %eax
     movl (%eax), %esp
-    
-    popl %gs
-    popl %fs
-    popl %es
-    popl %ds
-    popal
-    add $4, %esp
-    iret
-
+    popl %ebp
+    popl %edi
+    popl %esi
+    popl %ebx
+    ret
 .size task_switch, . - task_switch

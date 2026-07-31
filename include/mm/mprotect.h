@@ -8,6 +8,8 @@
 
 #include <kernel/types.h>
 
+struct vmm_context;
+
 #define MPROT_NONE  0x0
 #define MPROT_READ  0x1
 #define MPROT_WRITE 0x2

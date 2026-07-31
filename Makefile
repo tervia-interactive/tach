@@ -20,16 +20,22 @@ test: test-host
 
 test-host:
 	@mkdir -p src/build/host
-	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -fno-builtin -Iinclude \
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
 		tests/host/userspace_test.c \
 		src/lib/string.c src/lib/printf.c src/kernel/klog.c \
 		src/fs/vfs.c src/proc/fd.c src/proc/process.c \
 		src/proc/scheduler.c src/proc/syscall.c \
+		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/ipc/sem.c \
 		src/term/tty.c src/term/vterm.c src/term/shell.c \
 		src/userland/runtime.c \
 		-o src/build/host/userspace-test
 	@src/build/host/userspace-test
-	@echo "Host userspace integration test passed."
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
+		tests/host/mm_elf_test.c src/lib/string.c src/mm/pmm.c \
+		src/proc/elf_loader.c src/sync/atomic.c src/sync/spinlock.c \
+		src/hal/cpu.c -o src/build/host/mm-elf-test
+	@src/build/host/mm-elf-test
+	@echo "Host userspace, PMM, ELF, scheduler, and semaphore tests passed."
 
 clean:
 	rm -rf src/build/

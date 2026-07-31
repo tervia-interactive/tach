@@ -50,9 +50,13 @@ int userland_bootstrap(tty_t* tty) {
     klog_info("init", "starting interactive shell as PID %u",
               (unsigned)shell->pid);
 
+#ifdef TACH_HOST_TEST
     process_set_current(shell);
     shell_entry(tty);
-    int status = shell->exit_code;
     process_set_current(init);
+#else
+    scheduler_yield();
+#endif
+    int status = shell->exit_code;
     return status;
 }

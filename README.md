@@ -179,8 +179,9 @@ tach/
 - Timer wheel for delayed work
 
 ### Memory Management
-- Physical Memory Manager (PMM)
-- Virtual Memory Manager (VMM)
+- Bitmap physical frame allocator populated from Multiboot memory maps
+- Per-process VMM contexts backed by x86, ARM, AArch64, and RISC-V page tables
+- Page allocation, fixed mappings, unmapping, address-space switching, and cleanup
 - Kernel heap (kmalloc/kfree)
 - Slab allocator
 - W^X enforcement
@@ -193,18 +194,20 @@ tach/
 
 ### Userspace Foundation
 - Static process table with PID/PPID, lifecycle state, credentials, and accounting
-- Cooperative round-robin run queue ready for timer-driven preemption
+- Cooperative round-robin run queue with real architecture context switches
 - Per-process file descriptor tables with inherited console standard streams
 - Stable syscall dispatcher with `exit`, `read`, `write`, `open`, `close`, and `getpid`
 - Embedded PID 1 runtime that launches an interactive `sh`
 - `/dev/console` and `/dev/tty` through the VFS character-device interface
 - Interactive EN-US shell with quoting, command status, history, and line editing
 - Serial and PS/2 keyboard input with mirrored serial/VGA output
+- ELF32/ELF64 executable validation and `PT_LOAD` segment mapping
+- FIFO semaphores that block and wake processes through the scheduler
 
-The current userspace runtime is embedded in the kernel image. It exercises the
-process, file descriptor, VFS, TTY, and syscall boundaries, but does not claim
-ring-3 isolation yet. ELF execution and isolated address spaces depend on the
-still-in-progress PMM/VMM implementations.
+The embedded PID 1 and shell remain the default boot payload. Processes now have
+separate page-table roots and the ELF loader can populate them, but user-mode
+privilege transitions and a filesystem-backed `/sbin/init` are still future
+work; ELF entry points currently execute at kernel privilege.
 
 ### Hardware Support
 - VGA text mode console
