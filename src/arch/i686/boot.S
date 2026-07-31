@@ -18,6 +18,10 @@ stack_top:
 .type _start, @function
 _start:
     mov $stack_top, %esp
+    # Multiboot 1 enters with EAX=magic and EBX=information pointer.
+    # Pass both through the C ABI instead of discarding the memory map.
+    pushl %ebx
+    pushl %eax
     call kernel_main
     cli
 1:  hlt

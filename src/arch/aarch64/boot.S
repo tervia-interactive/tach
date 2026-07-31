@@ -7,6 +7,8 @@ _start:
     cbnz x0, secondary_cpu
     ldr x1, =stack_top
     mov sp, x1
+    mov x0, xzr
+    mov x1, xzr
     bl kernel_main
 loop: wfi; b loop
 secondary_cpu:

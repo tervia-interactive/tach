@@ -17,6 +17,8 @@
 #include <hal/console.h>
 #include <hal/cpu.h>
 #include <hal/smp.h>
+#include <hal/mm.h>
+#include <boot/multiboot.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
 #include <proc/scheduler.h>
@@ -59,7 +61,7 @@ static rwlock_t g_boot_rwlock;
 static tty_t g_tty0;
 static vterm_t g_vterm0;
 
-void kernel_main(void) {
+void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     hal_console_early_init();
     klog_init();
 
@@ -90,8 +92,15 @@ void kernel_main(void) {
               (unsigned)hal_smp_cpu_count());
 
     klog_info("mm", "pmm: initializing physical frame allocator");
-    pmm_init(NULL, 0);
-    klog_info("mm", "pmm: frame allocator ready");
+    if (multiboot_parse(boot_magic, boot_info) <= 0) {
+        klog_warn("mm", "bootloader memory map unavailable; using platform fallback");
+        hal_memmap_use_platform_fallback();
+    }
+    mem_region_t memory_map[64];
+    int memory_regions = hal_get_memmap(memory_map, 64);
+    pmm_init(memory_map, memory_regions > 0 ? (size_t)memory_regions : 0);
+    klog_info("mm", "pmm: %u free 4 KiB frames ready",
+              (unsigned)pmm_get_free_pages());
 
     klog_info("mm", "vmm: initializing kernel address space");
     vmm_init();

@@ -8,6 +8,7 @@
 #include <proc/process.h>
 #include <proc/scheduler.h>
 #include <proc/syscall.h>
+#include <ipc/sem.h>
 #include <term/tty.h>
 #include <term/vterm.h>
 #include <userland/runtime.h>
@@ -18,6 +19,15 @@ static const char* g_input;
 static size_t g_input_pos;
 static char g_output[16384];
 static size_t g_output_pos;
+
+void kernel_panic_with_code(const char* reason, int code) {
+    (void)reason;
+    (void)code;
+    __builtin_trap();
+}
+
+size_t pmm_get_total_pages(void) { return 1024; }
+size_t pmm_get_free_pages(void) { return 768; }
 
 void hal_console_early_init(void) {}
 
@@ -113,6 +123,23 @@ int main(void) {
     CHECK(process_start(worker, (void*)dummy_entry, NULL) == 0);
     scheduler_yield();
     CHECK(process_get_current() == worker);
+
+    sem_t semaphore;
+    sem_init(&semaphore, 1);
+    sem_acquire(&semaphore);
+    CHECK(semaphore.value == 0);
+    CHECK(semaphore.waiters == 0);
+    sem_release(&semaphore);
+    CHECK(semaphore.value == 1);
+
+    sem_t blocking;
+    sem_init(&blocking, 0);
+    sem_acquire(&blocking);
+    CHECK(worker->state == PROCESS_STATE_BLOCKED);
+    CHECK(blocking.waiters == 1);
+    sem_release(&blocking);
+    CHECK(worker->state == PROCESS_STATE_RUNNING);
+    CHECK(blocking.waiters == 0);
 
     vterm_t vt;
     vterm_init(&vt);

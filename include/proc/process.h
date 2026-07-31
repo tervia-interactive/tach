@@ -9,11 +9,14 @@
 #include <kernel/types.h>
 #include <proc/fd.h>
 
+struct vmm_context;
+
 #define PROCESS_STATE_UNUSED    0
 #define PROCESS_STATE_RUNNING   1
 #define PROCESS_STATE_SLEEPING  2
 #define PROCESS_STATE_STOPPED   3
 #define PROCESS_STATE_ZOMBIE    4
+#define PROCESS_STATE_BLOCKED   5
 
 #define MAX_PROCESS_NAME 64
 #define MAX_OPEN_FILES 256
@@ -34,6 +37,9 @@ struct process {
     size_t refcount;
     void* entry_arg;
     uint64_t runtime_ticks;
+    uintptr_t saved_stack;
+    size_t stack_pages;
+    void* block_reason;
 };
 
 void process_init(void);

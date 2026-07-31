@@ -7,6 +7,7 @@
 #include <hal/console.h>
 #include <proc/process.h>
 #include <proc/syscall.h>
+#include <mm/pmm.h>
 
 #define SHELL_MAX_ARGS 16
 
@@ -187,7 +188,9 @@ static int command_cat(const char* path) {
         return 0;
     }
     if (strcmp(path, "/proc/meminfo") == 0) {
-        shell_printf("Memory accounting is unavailable until PMM is online.\n");
+        shell_printf("MemTotal:\t%lu kB\nMemFree:\t%lu kB\n",
+                     (unsigned long)(pmm_get_total_pages() * 4),
+                     (unsigned long)(pmm_get_free_pages() * 4));
         return 0;
     }
     if (strcmp(path, "/proc/self/status") == 0) {

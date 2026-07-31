@@ -16,6 +16,8 @@ _start:
     la sp, _stack_top
     
     # Jump to kernel main
+    li a0, 0
+    li a1, 0
     call kernel_main
     
     # Halt if kernel returns

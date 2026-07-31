@@ -30,11 +30,11 @@ else ifeq ($(ARCH),aarch64)
     LINKER_SCRIPT := $(ROOTDIR)/link/aarch64.ld
 else ifeq ($(ARCH),riscv32)
     override CROSS_COMPILE := riscv64-linux-gnu-
-    ARCH_CFLAGS := -march=rv32imac_zicsr -mabi=ilp32
+    ARCH_CFLAGS := -march=rv32imac_zicsr -mabi=ilp32 -mcmodel=medany
     LINKER_SCRIPT := $(ROOTDIR)/link/riscv32.ld
 else ifeq ($(ARCH),riscv64)
     override CROSS_COMPILE := riscv64-linux-gnu-
-    ARCH_CFLAGS := -march=rv64imac_zicsr -mabi=lp64
+    ARCH_CFLAGS := -march=rv64imac_zicsr -mabi=lp64 -mcmodel=medany
     LINKER_SCRIPT := $(ROOTDIR)/link/riscv64.ld
 endif
 

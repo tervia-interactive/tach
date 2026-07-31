@@ -38,6 +38,12 @@ stack_bottom:
 stack_top:
 
 .section .data
+.align 8
+boot_magic:
+    .long 0
+boot_info:
+    .long 0
+
 .align 16
 gdt64:
     .quad 0                                                     # null descriptor
@@ -56,6 +62,10 @@ gdt64_pointer:
 _start:
     cli
     mov $stack_top, %esp
+    # Preserve the Multiboot 2 handoff before the paging bootstrap uses
+    # EAX/EBX as scratch registers.
+    movl %eax, boot_magic
+    movl %ebx, boot_info
 
     # Identity-map the first 1GiB with 2MiB pages: covers the kernel
     # (linked at 1MiB), the multiboot info blob GRUB left behind, and
@@ -112,6 +122,8 @@ long_mode_start:
 
     mov $stack_top, %rsp
     xor %rbp, %rbp
+    movl boot_magic(%rip), %edi
+    movl boot_info(%rip), %esi
     call kernel_main
     cli
 1:  hlt

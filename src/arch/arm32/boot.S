@@ -7,6 +7,8 @@ _start:
     orr r0, r0, #0xD3
     msr cpsr_c, r0
     ldr sp, =stack_top
+    mov r0, #0
+    mov r1, #0
     bl kernel_main
 loop: wfe; b loop
 .size _start, . - _start
