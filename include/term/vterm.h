@@ -13,6 +13,7 @@
 /* Virtual terminal structure */
 typedef struct {
     uint16_t* buffer;
+    uint16_t cells[VTERM_WIDTH * VTERM_HEIGHT];
     int cursor_x;
     int cursor_y;
     int scroll_start;

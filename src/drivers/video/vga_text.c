@@ -104,6 +104,13 @@ void vga_putc(char c) {
         cursor_x = 0;
     } else if (c == '\t') {
         cursor_x = (cursor_x + 8) & ~7;
+    } else if (c == '\b') {
+        if (cursor_x > 0) {
+            cursor_x--;
+        } else if (cursor_y > 0) {
+            cursor_y--;
+            cursor_x = VGA_WIDTH - 1;
+        }
     } else {
         vga_buffer[cursor_y * VGA_WIDTH + cursor_x] = vga_entry(c, color_fg, color_bg);
         cursor_x++;
