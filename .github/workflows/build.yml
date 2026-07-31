@@ -89,36 +89,27 @@ jobs:
     strategy:
       matrix:
         arch: [ riscv32, riscv64 ]
-    continue-on-error: true
 
     steps:
     - uses: actions/checkout@v6
 
-    - name: Install RISC-V toolchain (optional)
+    - name: Install RISC-V toolchain
       run: |
-        sudo apt-get update || true
+        sudo apt-get update
         sudo apt-get install -y \
           gcc-riscv64-linux-gnu \
-          gcc-riscv32-linux-gnu \
-          binutils-riscv64-linux-gnu \
-          binutils-riscv32-linux-gnu || true
+          binutils-riscv64-linux-gnu
 
-    - name: Build ${{ matrix.arch }} (best effort)
+    - name: Build ${{ matrix.arch }}
       run: |
-        if [ "${{ matrix.arch }}" == "riscv32" ]; then
-          make ARCH=riscv32 CROSS_COMPILE=riscv32-linux-gnu- 2>&1 || echo "riscv32 build skipped"
-        elif [ "${{ matrix.arch }}" == "riscv64" ]; then
-          make ARCH=riscv64 CROSS_COMPILE=riscv64-linux-gnu- 2>&1 || echo "riscv64 build skipped"
-        fi
+        make ARCH=${{ matrix.arch }} CROSS_COMPILE=riscv64-linux-gnu-
 
-    - name: Upload binary (if exists)
+    - name: Upload binary
       uses: actions/upload-artifact@v6
       with:
         name: tach-${{ matrix.arch }}-kernel
         path: src/build/${{ matrix.arch }}/tach.bin
         retention-days: 30
-        if-no-files-found: ignore
-      if: always()
 
   release:
     needs: [build-x86, build-arm]
