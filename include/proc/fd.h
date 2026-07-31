@@ -24,6 +24,7 @@ struct fd_table {
 };
 
 struct fd_table* fd_table_create(void);
+struct fd_table* fd_table_clone(const struct fd_table* source);
 void fd_table_destroy(struct fd_table* table);
 int fd_alloc(struct fd_table* table, struct vnode* vnode, int flags);
 struct fd_entry* fd_get(struct fd_table* table, int fd);

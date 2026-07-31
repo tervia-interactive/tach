@@ -1,27 +1,63 @@
+#include <kernel/klog.h>
+#include <kernel/signal.h>
 #include <kernel/types.h>
+#include <hal/cpu.h>
+#include <mm/vmm.h>
+#include <proc/process.h>
+#include <proc/scheduler.h>
 
-typedef struct {
+struct exception_frame32 {
     uint32_t ds;
-    uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;
-    uint32_t int_no, err_code;
-    uint32_t eip, cs, eflags, useresp, ss;
-} registers_t;
+    uint32_t edi, esi, ebp, saved_esp, ebx, edx, ecx, eax;
+    uint32_t vector, error, eip, cs, eflags, useresp, ss;
+};
 
-extern void isr0(void); extern void isr1(void); extern void isr2(void);
-extern void isr3(void); extern void isr4(void); extern void isr5(void);
-extern void isr6(void); extern void isr7(void); extern void isr8(void);
-extern void isr9(void); extern void isr10(void); extern void isr11(void);
-extern void isr12(void); extern void isr13(void); extern void isr14(void);
-extern void isr15(void); extern void isr16(void); extern void isr17(void);
-extern void isr18(void); extern void isr19(void); extern void isr20(void);
-extern void isr21(void); extern void isr22(void); extern void isr23(void);
-extern void isr24(void); extern void isr25(void); extern void isr26(void);
-extern void isr27(void); extern void isr28(void); extern void isr29(void);
-extern void isr30(void); extern void isr31(void);
-
-void isr_handler(registers_t *regs) {
-    (void)regs;
+static void to_context(const struct exception_frame32* frame,
+                       struct user_context* context) {
+    context->pc = frame->eip; context->sp = frame->useresp;
+    context->flags = frame->eflags;
+    context->regs[0] = frame->eax; context->regs[1] = frame->ebx;
+    context->regs[2] = frame->ecx; context->regs[3] = frame->edx;
+    context->regs[4] = frame->esi; context->regs[5] = frame->edi;
+    context->regs[6] = frame->ebp;
 }
 
-void isr_install(void) {
+static void from_context(const struct user_context* context,
+                         struct exception_frame32* frame) {
+    frame->eip = context->pc; frame->useresp = context->sp;
+    frame->eflags = context->flags | 0x200;
+    frame->eax = context->regs[0]; frame->ebx = context->regs[1];
+    frame->ecx = context->regs[2]; frame->edx = context->regs[3];
+    frame->esi = context->regs[4]; frame->edi = context->regs[5];
+    frame->ebp = context->regs[6];
 }
+
+void isr_handler(struct exception_frame32* frame) {
+    uintptr_t address = 0;
+    if (frame->vector == 14) {
+        __asm__ volatile("mov %%cr2, %0" : "=r"(address));
+        if (vmm_handle_fault(address, (frame->error & 2u) != 0) == 0) return;
+    }
+    if ((frame->cs & 3u) == 3u) {
+        struct process* process = process_get_current();
+        if (process) {
+            process->signal_fault_address = address;
+            to_context(frame, &process->user_context);
+            int signal = frame->vector == 0 ? SIGFPE :
+                         (frame->vector == 6 ? SIGILL : SIGSEGV);
+            (void)signal_send(process->pid, signal);
+            (void)signal_deliver_pending(process, &process->user_context);
+            if (process->state != PROCESS_STATE_RUNNING)
+                for (;;) scheduler_yield();
+            from_context(&process->user_context, frame);
+            return;
+        }
+    }
+    klog_err("cpu", "i686 kernel exception %u error=0x%x eip=%p",
+             (unsigned)frame->vector, (unsigned)frame->error,
+             (void*)(uintptr_t)frame->eip);
+    hal_cpu_cli();
+    for (;;) hal_cpu_halt();
+}
+
+void isr_install(void) {}

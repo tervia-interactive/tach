@@ -25,6 +25,7 @@ struct dirent {
 #define O_RDONLY 0x0000
 #define O_WRONLY 0x0001
 #define O_RDWR   0x0002
+#define O_ACCMODE 0x0003
 #define O_CREAT  0x0200
 #define O_TRUNC  0x0400
 #define O_APPEND 0x0008
@@ -36,6 +37,8 @@ struct vnode {
     void* data;
     struct vnode_ops* ops;
     size_t refcount;
+    size_t size;
+    char path[128];
 };
 
 struct vnode_ops {
@@ -53,5 +56,8 @@ struct vnode* vfs_open(const char* path, int flags);
 int vfs_close(struct vnode* vn);
 ssize_t vfs_read(struct vnode* vn, void* buf, size_t count, int64_t offset);
 ssize_t vfs_write(struct vnode* vn, const void* buf, size_t count, int64_t offset);
+struct vnode* vfs_console(void);
+int vfs_register_memfile(const char* path, const void* data, size_t size);
+int vfs_read_file(const char* path, const void** data, size_t* size);
 
 #endif /* _FS_VFS_H */

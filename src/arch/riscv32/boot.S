@@ -5,12 +5,13 @@
 .globl _start
 
 _start:
-    # Disable interrupts
-    csrci mstatus, 0x8
+    # OpenSBI enters the kernel in supervisor mode. Keep S-mode IRQs
+    # masked until the HAL has installed the timer handler.
+    csrci sstatus, 0x2
     
     # Set trap vector
     la t0, trap_vector
-    csrw mtvec, t0
+    csrw stvec, t0
     
     # Initialize stack pointer
     la sp, _stack_top

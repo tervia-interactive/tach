@@ -5,13 +5,9 @@
 #include <hal/console.h>
 #include <stdarg.h>
 
-/* Simulated monotonic boot-time clock, in microseconds. Real hardware
- * timers aren't wired up yet (see hal/time.c), so we advance this by a
- * plausible amount on every log line instead of leaving every timestamp
- * at [0.000000]. 32 bits of microseconds is ~71 minutes of range, far
- * more than boot needs, and (unlike uint64_t) divides/mods on it with a
- * single hardware instruction on every arch we target, no libgcc helper
- * required. */
+/* Monotonic early boot-time clock, in microseconds. It stays independent
+ * of the scheduler timer so logging works before interrupts are enabled.
+ * Keeping it 32-bit also avoids freestanding libgcc division helpers. */
 static uint32_t g_boot_usec = 0;
 
 void klog_init(void) {

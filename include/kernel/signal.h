@@ -63,11 +63,20 @@ typedef struct siginfo {
     void* si_addr;
 } siginfo_t;
 
+struct process;
+struct user_context;
+
 /* Initialize signal set */
 void sigemptyset(sigset_t* set);
 void sigfillset(sigset_t* set);
 void sigaddset(sigset_t* set, int signo);
 void sigdelset(sigset_t* set, int signo);
 int sigismember(const sigset_t* set, int signo);
+int signal_register(int sig);
+int signal_send(pid_t pid, int sig);
+int signal_set_action(struct process* proc, int sig,
+                      const sigaction_t* action, sigaction_t* old_action);
+int signal_deliver_pending(struct process* proc,
+                           struct user_context* context);
 
 #endif /* _KERNEL_SIGNAL_H */

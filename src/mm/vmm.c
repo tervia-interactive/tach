@@ -5,6 +5,7 @@
 #include <hal/paging.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include <proc/process.h>
 
 #define VMM_MAX_CONTEXTS 32
 #define VMM_MAX_MAPPINGS 512
@@ -92,6 +93,29 @@ struct vmm_context* vmm_create_context(void) {
     }
     spinlock_unlock(&g_vmm_lock);
     return NULL;
+}
+
+struct vmm_context* vmm_clone_context(struct vmm_context* source) {
+    if (!source) return NULL;
+    struct vmm_context* clone = vmm_create_context();
+    if (!clone) return NULL;
+    struct vmm_slot* source_slot = slot_for(source);
+    if (!source_slot) return clone;
+    for (size_t i = 0; i < source_slot->mapping_count; i++) {
+        struct vmm_mapping* mapping = &source_slot->mappings[i];
+        phys_addr_t destination;
+        int result = vmm_map_allocated(clone, (void*)mapping->virt,
+                                       mapping->flags & ~VMM_COW,
+                                       &destination);
+        if (result < 0) {
+            vmm_destroy_context(clone);
+            return NULL;
+        }
+        memcpy((void*)(uintptr_t)destination,
+               (const void*)(uintptr_t)mapping->phys, PAGE_SIZE);
+    }
+    clone->next_free = source->next_free;
+    return clone;
 }
 
 void vmm_destroy_context(struct vmm_context* context) {
@@ -230,8 +254,94 @@ phys_addr_t vmm_resolve(struct vmm_context* context, const void* address) {
     return mapping->phys + ((uintptr_t)address & (PAGE_SIZE - 1));
 }
 
+uint32_t vmm_get_flags(struct vmm_context* context, const void* address) {
+    struct vmm_mapping* mapping =
+        find_mapping(slot_for(context), (uintptr_t)address);
+    return mapping ? mapping->flags : 0;
+}
+
+int vmm_protect(struct vmm_context* context, void* address, uint32_t flags) {
+    if (!context || !address) return -EINVAL;
+    uintptr_t page = (uintptr_t)address & ~(uintptr_t)(PAGE_SIZE - 1);
+    struct vmm_mapping* mapping = find_mapping(slot_for(context), page);
+    if (!mapping) return -ENOENT;
+    int result = arch_paging_map(context->page_table, page,
+                                 mapping->phys, flags | VMM_PRESENT);
+    if (result < 0) return result;
+    mapping->flags = flags | VMM_PRESENT;
+    return 0;
+}
+
+static int copy_user_range(void* destination, struct vmm_context* context,
+                           const void* source, size_t size, bool to_user) {
+    if (!context || (!destination && size) || (!source && size)) return -EFAULT;
+    uint8_t* output = (uint8_t*)destination;
+    const uint8_t* input = (const uint8_t*)source;
+    while (size) {
+        uintptr_t user_address = to_user ? (uintptr_t)output :
+                                           (uintptr_t)input;
+        uint32_t flags = vmm_get_flags(context, (void*)user_address);
+        if (!(flags & VMM_USER) || (to_user && !(flags & VMM_WRITABLE)))
+            return -EFAULT;
+        phys_addr_t physical = vmm_resolve(context, (void*)user_address);
+        if (!physical) return -EFAULT;
+        size_t chunk = PAGE_SIZE - (user_address & (PAGE_SIZE - 1));
+        if (chunk > size) chunk = size;
+        if (to_user) memcpy((void*)(uintptr_t)physical, input, chunk);
+        else memcpy(output, (const void*)(uintptr_t)physical, chunk);
+        output += chunk;
+        input += chunk;
+        size -= chunk;
+    }
+    return 0;
+}
+
+int vmm_copy_from_user(void* destination, struct vmm_context* context,
+                       const void* source, size_t size) {
+    return copy_user_range(destination, context, source, size, false);
+}
+
+int vmm_copy_to_user(struct vmm_context* context, void* destination,
+                     const void* source, size_t size) {
+    return copy_user_range(destination, context, source, size, true);
+}
+
+int vmm_copy_string_from_user(char* destination, size_t capacity,
+                              struct vmm_context* context,
+                              const char* source) {
+    if (!destination || !capacity || !source) return -EFAULT;
+    for (size_t i = 0; i < capacity; i++) {
+        int result = vmm_copy_from_user(&destination[i], context,
+                                        source + i, 1);
+        if (result < 0) return result;
+        if (!destination[i]) return 0;
+    }
+    destination[capacity - 1] = '\0';
+    return -ENAMETOOLONG;
+}
+
 int vmm_handle_fault(uintptr_t address, int is_write) {
-    (void)address;
-    (void)is_write;
+    struct process* process = process_get_current();
+    if (!process || !process->user_mode || !process->mm) return -EFAULT;
+    uintptr_t page = address & ~(uintptr_t)(PAGE_SIZE - 1);
+    if (vmm_resolve(process->mm, (void*)page)) {
+        uint32_t flags = vmm_get_flags(process->mm, (void*)page);
+        if (is_write && !(flags & VMM_WRITABLE)) return -EACCES;
+        return 0;
+    }
+
+    uintptr_t stack_limit = process->user_stack_top - PROCESS_USER_STACK_MAX;
+    if (page < process->user_stack_bottom && page >= stack_limit &&
+        page + PAGE_SIZE == process->user_stack_bottom) {
+        int result = vmm_map_allocated(process->mm, (void*)page,
+                                       VMM_USER | VMM_WRITABLE, NULL);
+        if (result < 0) return result;
+        process->user_stack_bottom = page;
+        return 0;
+    }
+    if (page >= process->brk_start && address < process->brk_end) {
+        return vmm_map_allocated(process->mm, (void*)page,
+                                 VMM_USER | VMM_WRITABLE, NULL);
+    }
     return -EFAULT;
 }

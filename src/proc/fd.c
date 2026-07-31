@@ -19,6 +19,18 @@ struct fd_table* fd_table_create(void) {
     return NULL;
 }
 
+struct fd_table* fd_table_clone(const struct fd_table* source) {
+    if (!source) return NULL;
+    struct fd_table* clone = fd_table_create();
+    if (!clone) return NULL;
+    for (int fd = 0; fd < FD_TABLE_SIZE; fd++) {
+        if (!source->entries[fd].vnode) continue;
+        clone->entries[fd] = source->entries[fd];
+        clone->entries[fd].vnode->refcount++;
+    }
+    return clone;
+}
+
 void fd_table_destroy(struct fd_table* table) {
     if (!table) {
         return;

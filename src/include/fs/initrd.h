@@ -10,5 +10,6 @@
 
 void initrd_init(void* base, size_t size);
 struct vnode* initrd_extract_to_tmpfs(void);
+int initrd_parse(void* address, size_t archive_size);
 
 #endif /* _FS_INITRD_H */

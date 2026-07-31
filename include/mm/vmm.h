@@ -16,6 +16,7 @@ struct process;
 #define VMM_USER     (1 << 2)
 #define VMM_NOCACHE  (1 << 3)
 #define VMM_EXECUTABLE (1 << 4)
+#define VMM_COW      (1 << 5)
 
 struct vmm_context {
     void* page_table;
@@ -25,6 +26,7 @@ struct vmm_context {
 
 void vmm_init(void);
 struct vmm_context* vmm_create_context(void);
+struct vmm_context* vmm_clone_context(struct vmm_context* source);
 void vmm_destroy_context(struct vmm_context* ctx);
 void vmm_switch_context(struct vmm_context* ctx);
 int vmm_map(struct vmm_context* ctx, void* virt, phys_addr_t phys, uint32_t flags);
@@ -35,6 +37,14 @@ void* vmm_alloc_page(struct vmm_context* ctx, uint32_t flags);
 void vmm_free_page(struct vmm_context* ctx, void* virt);
 int vmm_handle_fault(uintptr_t addr, int is_write);
 phys_addr_t vmm_resolve(struct vmm_context* ctx, const void* virt);
+uint32_t vmm_get_flags(struct vmm_context* ctx, const void* virt);
+int vmm_protect(struct vmm_context* ctx, void* virt, uint32_t flags);
+int vmm_copy_from_user(void* destination, struct vmm_context* ctx,
+                       const void* source, size_t size);
+int vmm_copy_to_user(struct vmm_context* ctx, void* destination,
+                     const void* source, size_t size);
+int vmm_copy_string_from_user(char* destination, size_t capacity,
+                              struct vmm_context* ctx, const char* source);
 struct vmm_context* vmm_kernel_context(void);
 
 #endif /* _MM_VMM_H */

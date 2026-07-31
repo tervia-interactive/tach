@@ -14,7 +14,7 @@ i686 x86_64 arm32 aarch64 riscv32 riscv64:
 
 iso:
 	@echo "Creating bootable ISO for $(ARCH)..."
-	$(MAKE) -C src iso ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
+	$(MAKE) -C src iso ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) INITRD="$(INITRD)"
 
 test: test-host
 
@@ -24,8 +24,8 @@ test-host:
 		tests/host/userspace_test.c \
 		src/lib/string.c src/lib/printf.c src/kernel/klog.c \
 		src/fs/vfs.c src/proc/fd.c src/proc/process.c \
-		src/proc/scheduler.c src/proc/syscall.c \
-		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/ipc/sem.c \
+		src/proc/scheduler.c src/proc/syscall.c src/proc/signal.c src/proc/wait.c \
+		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/time.c src/hal/user.c src/ipc/sem.c \
 		src/term/tty.c src/term/vterm.c src/term/shell.c \
 		src/userland/runtime.c \
 		-o src/build/host/userspace-test
@@ -33,9 +33,19 @@ test-host:
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
 		tests/host/mm_elf_test.c src/lib/string.c src/mm/pmm.c \
 		src/proc/elf_loader.c src/sync/atomic.c src/sync/spinlock.c \
-		src/hal/cpu.c -o src/build/host/mm-elf-test
+		src/hal/cpu.c src/hal/irq.c -o src/build/host/mm-elf-test
 	@src/build/host/mm-elf-test
-	@echo "Host userspace, PMM, ELF, scheduler, and semaphore tests passed."
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
+		tests/host/vmm_fault_test.c src/lib/string.c src/mm/vmm.c \
+		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c \
+		-o src/build/host/vmm-fault-test
+	@src/build/host/vmm-fault-test
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
+		tests/host/heap_test.c src/lib/string.c src/mm/kheap.c src/mm/slab.c \
+		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c \
+		-o src/build/host/heap-test
+	@src/build/host/heap-test
+	@echo "Host userspace, PMM, VMM/ELF/fault, heap/slab, preemption, process, signal, and semaphore tests passed."
 
 clean:
 	rm -rf src/build/

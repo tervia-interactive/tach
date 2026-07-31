@@ -9,5 +9,8 @@
 #include <kernel/types.h>
 
 int multiboot_parse(uint32_t magic, uintptr_t info);
+size_t multiboot_module_count(void);
+int multiboot_get_module(size_t index, const void** address, size_t* size,
+                         const char** name);
 
 #endif /* _BOOT_MULTIBOOT_H */

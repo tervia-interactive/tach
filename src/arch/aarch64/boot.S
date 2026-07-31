@@ -7,6 +7,9 @@ _start:
     cbnz x0, secondary_cpu
     ldr x1, =stack_top
     mov sp, x1
+    ldr x1, =exception_vector_el1
+    msr vbar_el1, x1
+    isb
     mov x0, xzr
     mov x1, xzr
     bl kernel_main

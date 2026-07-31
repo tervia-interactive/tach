@@ -34,6 +34,7 @@
 #define SYS_SIGACTION   27
 #define SYS_MMAP        90
 #define SYS_MUNMAP      91
+#define SYS_KILL        37
 #define SYSCALL_TABLE_SIZE 128
 
 typedef long (*syscall_handler_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);

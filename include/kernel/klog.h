@@ -2,10 +2,9 @@
 /*
  * dmesg-style boot/runtime logging. Every line is timestamped as
  * "[seconds.microseconds]" the way Linux's printk does, tagged with the
- * subsystem that emitted it. There is no real hardware timer wired up
- * yet (hal_timer_* are stubs), so klog advances its own monotonic
- * boot-time counter by a small amount on every call — enough to produce
- * realistic, strictly increasing timestamps during boot.
+ * subsystem that emitted it. Early boot precedes timer setup, so klog
+ * maintains a lightweight monotonic timestamp independent of scheduler
+ * ticks.
  */
 
 #ifndef _KERNEL_KLOG_H
@@ -13,7 +12,7 @@
 
 #include "kernel/types.h"
 
-/* Resets the simulated boot-time clock to 0. Call once, first. */
+/* Resets the early boot-time clock to 0. Call once, first. */
 void klog_init(void);
 
 /* Advances the simulated boot-time clock by the given number of

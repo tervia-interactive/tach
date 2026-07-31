@@ -15,3 +15,4 @@ task_switch:
     popl %ebx
     ret
 .size task_switch, . - task_switch
+.section .note.GNU-stack,"",@progbits

@@ -3,6 +3,23 @@
 #include <boot/multiboot2.h>
 #include <hal/mm.h>
 
+#define MULTIBOOT_MAX_MODULES 16
+struct boot_module {
+    const void* address;
+    size_t size;
+    const char* name;
+};
+static struct boot_module g_modules[MULTIBOOT_MAX_MODULES];
+static size_t g_module_count;
+
+static void remember_module(uintptr_t start, uintptr_t end, const char* name) {
+    if (end <= start || g_module_count >= MULTIBOOT_MAX_MODULES) return;
+    g_modules[g_module_count].address = (const void*)start;
+    g_modules[g_module_count].size = end - start;
+    g_modules[g_module_count].name = name;
+    g_module_count++;
+}
+
 static uint32_t normalize_type(uint32_t type) {
     switch (type) {
         case 1: return MEM_REGION_USABLE;
@@ -57,6 +74,8 @@ static int parse_multiboot1(uintptr_t address) {
                 hal_memmap_add(modules[i].mod_start,
                                modules[i].mod_end - modules[i].mod_start,
                                MEM_REGION_RESERVED);
+                remember_module(modules[i].mod_start, modules[i].mod_end,
+                                (const char*)(uintptr_t)modules[i].string);
             }
         }
     }
@@ -109,6 +128,8 @@ static int parse_multiboot2(uintptr_t address) {
                 hal_memmap_add(module->mod_start,
                                module->mod_end - module->mod_start,
                                MEM_REGION_RESERVED);
+                remember_module(module->mod_start, module->mod_end,
+                                module->string);
             }
         }
         cursor = (cursor + tag->size + 7u) & ~(uintptr_t)7u;
@@ -118,6 +139,7 @@ static int parse_multiboot2(uintptr_t address) {
 
 int multiboot_parse(uint32_t magic, uintptr_t info) {
     hal_memmap_reset();
+    g_module_count = 0;
     if (!info) {
         return -1;
     }
@@ -128,4 +150,15 @@ int multiboot_parse(uint32_t magic, uintptr_t info) {
         return parse_multiboot2(info);
     }
     return -1;
+}
+
+size_t multiboot_module_count(void) { return g_module_count; }
+
+int multiboot_get_module(size_t index, const void** address, size_t* size,
+                         const char** name) {
+    if (index >= g_module_count) return -1;
+    if (address) *address = g_modules[index].address;
+    if (size) *size = g_modules[index].size;
+    if (name) *name = g_modules[index].name;
+    return 0;
 }

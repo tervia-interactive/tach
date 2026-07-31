@@ -38,11 +38,10 @@ struct idt_ptr {
 static struct idt_entry idt[256];
 static struct idt_ptr idtp;
 
-/* One machine-code entry point per exception vector, defined in
- * isr_stubs.S. Only the first 32 (CPU-reserved exception vectors) are
- * wired up here; there's no interrupt controller/timer/keyboard IRQ
- * routing yet. */
+/* Exception and remapped legacy PIC entry points. */
 extern uint64_t isr_stub_table[32];
+extern uint64_t irq_stub_table[16];
+extern void int80_stub(void);
 extern void idt_flush(uint64_t);
 
 void idt_set_gate(uint8_t num, uint64_t base, uint16_t selector, uint8_t flags) {
@@ -66,6 +65,12 @@ void idt_init(void) {
     for (int i = 0; i < 32; i++) {
         idt_set_gate((uint8_t)i, isr_stub_table[i], KERNEL_CODE_SELECTOR, IDT_FLAGS_INT_GATE);
     }
+    for (int i = 0; i < 16; i++) {
+        idt_set_gate((uint8_t)(32 + i), irq_stub_table[i],
+                     KERNEL_CODE_SELECTOR, IDT_FLAGS_INT_GATE);
+    }
+    idt_set_gate(0x80, (uint64_t)(uintptr_t)int80_stub,
+                 KERNEL_CODE_SELECTOR, 0xee);
 
     idt_flush((uint64_t)&idtp);
 }
