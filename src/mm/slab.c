@@ -23,6 +23,24 @@ static size_t slab_align(size_t value) {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
+/* Freestanding ARM32 does not provide the compiler's __aeabi_uidiv
+ * helpers, so keep slab arithmetic self-contained. */
+static size_t slab_divide(size_t dividend, size_t divisor,
+                          size_t* remainder_out) {
+    size_t quotient = 0;
+    size_t remainder = 0;
+    if (!divisor) return 0;
+    for (int bit = (int)(sizeof(size_t) * 8) - 1; bit >= 0; bit--) {
+        remainder = (remainder << 1) | ((dividend >> bit) & 1u);
+        if (remainder >= divisor) {
+            remainder -= divisor;
+            quotient |= (size_t)1 << bit;
+        }
+    }
+    if (remainder_out) *remainder_out = remainder;
+    return quotient;
+}
+
 void slab_init(void) {
     spinlock_init(&g_slab_lock);
     g_slab_ready = true;
@@ -36,7 +54,7 @@ struct slab_cache* slab_cache_create(const char* name, size_t size) {
     cache->name = name;
     cache->object_size = slab_align(size < sizeof(void*) ? sizeof(void*) : size);
     size_t available = SLAB_BYTES - slab_align(sizeof(struct slab_page));
-    cache->objects_per_slab = available / cache->object_size;
+    cache->objects_per_slab = slab_divide(available, cache->object_size, NULL);
     if (!cache->objects_per_slab) cache->objects_per_slab = 1;
     return cache;
 }
@@ -89,8 +107,10 @@ void slab_free(struct slab_cache* cache, void* object) {
         uintptr_t first = (uintptr_t)page + header;
         uintptr_t end = first + page->capacity * cache->object_size;
         uintptr_t address = (uintptr_t)object;
-        if (address < first || address >= end ||
-            ((address - first) % cache->object_size) != 0) continue;
+        size_t remainder = 0;
+        if (address >= first && address < end)
+            (void)slab_divide(address - first, cache->object_size, &remainder);
+        if (address < first || address >= end || remainder != 0) continue;
         *(void**)object = page->free_list;
         page->free_list = object;
         if (page->in_use) page->in_use--;
