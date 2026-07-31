@@ -8,6 +8,7 @@
 
 #if defined(__i386__) || defined(__x86_64__)
 #include <drivers/char/serial.h>
+#include <drivers/input/keyboard.h>
 #include <drivers/video/vga_text.h>
 
 void hal_console_early_init(void) {
@@ -33,6 +34,21 @@ void hal_console_clear(void) {
     vga_clear();
 }
 
+int hal_console_input_available(void) {
+    return serial_available() || keyboard_available();
+}
+
+char hal_console_getchar(void) {
+    while (1) {
+        if (serial_available()) {
+            return serial_getchar();
+        }
+        if (keyboard_available()) {
+            return keyboard_readchar();
+        }
+    }
+}
+
 #else
 
 void hal_console_early_init(void) {
@@ -49,6 +65,14 @@ void hal_console_write(const char* str, size_t len) {
 }
 
 void hal_console_clear(void) {
+}
+
+int hal_console_input_available(void) {
+    return 0;
+}
+
+char hal_console_getchar(void) {
+    return 0;
 }
 
 #endif

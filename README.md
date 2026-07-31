@@ -191,6 +191,21 @@ tach/
 - kqueue event notification
 - POSIX-style signals
 
+### Userspace Foundation
+- Static process table with PID/PPID, lifecycle state, credentials, and accounting
+- Cooperative round-robin run queue ready for timer-driven preemption
+- Per-process file descriptor tables with inherited console standard streams
+- Stable syscall dispatcher with `exit`, `read`, `write`, `open`, `close`, and `getpid`
+- Embedded PID 1 runtime that launches an interactive `sh`
+- `/dev/console` and `/dev/tty` through the VFS character-device interface
+- Interactive EN-US shell with quoting, command status, history, and line editing
+- Serial and PS/2 keyboard input with mirrored serial/VGA output
+
+The current userspace runtime is embedded in the kernel image. It exercises the
+process, file descriptor, VFS, TTY, and syscall boundaries, but does not claim
+ring-3 isolation yet. ELF execution and isolated address spaces depend on the
+still-in-progress PMM/VMM implementations.
+
 ### Hardware Support
 - VGA text mode console
 - Serial port (UART) debugging

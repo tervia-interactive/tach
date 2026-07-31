@@ -32,6 +32,7 @@
 #include <term/tty.h>
 #include <term/vterm.h>
 #include <term/shell.h>
+#include <userland/runtime.h>
 
 /* A few real driver entry points exist but their headers were never
  * updated to declare them (drivers/input/keyboard.h and
@@ -113,7 +114,7 @@ void kernel_main(void) {
 
     klog_info("proc", "scheduler: initializing run queues");
     scheduler_init();
-    klog_info("proc", "scheduler: idle task ready (no timer IRQ wired up yet, preemption disabled)");
+    klog_info("proc", "scheduler: round-robin run queue ready (cooperative)");
 
     klog_info("proc", "syscall: installing dispatch table");
     syscall_init();
@@ -163,12 +164,9 @@ void kernel_main(void) {
 
     klog_info("tach", "system initialized successfully");
     klog_raw("\n");
-    klog_warn("init", "no /sbin/init found on rootfs, dropping to kernel shell");
-
-    shell_t sh;
-    sh.prompt = "tach> ";
-    sh.running = true;
-    shell_run(&sh);
+    int userland_status = userland_bootstrap(&g_tty0);
+    klog_warn("init", "interactive userspace exited with status %d",
+              userland_status);
 
     while (1) {
         hal_cpu_halt();

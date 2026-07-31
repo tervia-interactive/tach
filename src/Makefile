@@ -42,7 +42,7 @@ CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
 
 INCLUDE_DIR := $(ROOTDIR)/include
-SRC_DIRS := kernel sync ipc hal boot hw mm proc fs term lib
+SRC_DIRS := kernel sync ipc hal boot hw mm proc fs term lib userland
 SRC_DIRS += drivers/char drivers/video drivers/input drivers/block
 SRC_DIRS += arch/$(ARCH)
 

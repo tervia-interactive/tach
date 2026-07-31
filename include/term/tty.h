@@ -8,14 +8,20 @@
 /* TTY modes */
 #define TTY_MODE_RAW  0
 #define TTY_MODE_COOKED 1
+#define TTY_BUFFER_SIZE 256
+#define TTY_HISTORY_SIZE 8
 
 /* TTY structure */
 typedef struct {
     int mode;
     bool echo;
-    char* buffer;
+    char buffer[TTY_BUFFER_SIZE];
     size_t buf_pos;
     size_t buf_size;
+    char history[TTY_HISTORY_SIZE][TTY_BUFFER_SIZE];
+    size_t history_count;
+    size_t history_head;
+    int history_cursor;
 } tty_t;
 
 /* Initialize TTY */

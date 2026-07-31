@@ -15,9 +15,13 @@
 
 /* Initialize keyboard driver */
 int keyboard_init(void);
+int keyboard_ps2_init(void);
 
 /* Read next character from keyboard buffer */
 char keyboard_readchar(void);
+
+/* Check whether a translated character is ready without blocking. */
+int keyboard_available(void);
 
 /* Check if key is pressed */
 bool keyboard_is_pressed(uint8_t scancode);
