@@ -17,7 +17,10 @@ ap_trampoline_start:
     movl %eax, %cr3
     movl $0xc0000080, %ecx
     rdmsr
-    orl $0x100, %eax
+    /* The BSP's page tables contain NX bits.  NX is reserved until EFER.NXE
+     * is enabled, so APs must set it before paging or the first MMIO/data
+     * access can raise a reserved-bit page fault. */
+    orl $0x900, %eax
     wrmsr
     movl %cr0, %eax
     orl $0x80000001, %eax
