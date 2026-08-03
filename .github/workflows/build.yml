@@ -48,7 +48,7 @@ jobs:
     - name: SMP and userspace boot smoke test
       shell: bash
       run: |
-        truncate -s 64M disk.img
+        truncate -s 128M disk.img
         mkfs.fat -F 32 disk.img
         set +e
         if [ "${{ matrix.arch }}" = i686 ]; then
@@ -74,7 +74,24 @@ jobs:
         grep -F "tach userspace shell" boot.log
         grep -F "SATA disk(s) online" boot.log
         grep -F "mounted sda persistently at /disk" boot.log
+        grep -F "persistent storage seeded" boot.log
         ! grep -F "userspace exited" boot.log
+
+        set +e
+        timeout 12s "$qemu" \
+          -machine q35 \
+          -boot d \
+          -cdrom src/build/${{ matrix.arch }}/tach.iso \
+          -drive file=disk.img,format=raw,if=ide \
+          -display none -serial stdio -no-reboot -smp 2 -m 256M \
+          > reboot.log 2>&1
+        status=$?
+        set -e
+        cat reboot.log
+        test "$status" -eq 124
+        grep -F "persistent storage survived reboot" reboot.log
+        grep -F "tach persistent storage verified" reboot.log
+        ! grep -F "userspace exited" reboot.log
 
     - name: Verify external userspace ELFs
       run: |
@@ -145,8 +162,13 @@ jobs:
           qemu=qemu-system-aarch64
           cpu=cortex-a57
         fi
+        kernel=src/build/${{ matrix.arch }}/tach.bin
+        if [ "${{ matrix.arch }}" = aarch64 ]; then
+          aarch64-linux-gnu-objcopy -O binary "$kernel" tach-aarch64.img
+          kernel=tach-aarch64.img
+        fi
         timeout 15s "$qemu" -machine virt -cpu "$cpu" \
-          -kernel src/build/${{ matrix.arch }}/tach.bin \
+          -kernel "$kernel" \
           -nographic -no-reboot -smp 1 -m 256M > boot.log 2>&1
         status=$?
         set -e
@@ -200,7 +222,7 @@ jobs:
       run: |
         if [ "${{ matrix.arch }}" = riscv32 ]; then
           qemu=qemu-system-riscv32
-          git clone --depth 1 --branch v1.4.1 \
+          git clone --depth 1 --branch v1.4 \
             https://github.com/riscv-software-src/opensbi.git /tmp/opensbi
           make -C /tmp/opensbi CROSS_COMPILE=riscv64-linux-gnu- \
             PLATFORM=generic PLATFORM_RISCV_XLEN=32
