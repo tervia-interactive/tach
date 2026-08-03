@@ -76,7 +76,8 @@ struct acpi_sdt_header* acpi_find_table(const char* signature) {
         if (!root || root->length < sizeof(*root) ||
             !checksum_ok(root, root->length)) continue;
         size_t width = root == g_xsdt ? 8 : 4;
-        size_t count = (root->length - sizeof(*root)) / width;
+        size_t count = (root->length - sizeof(*root)) >>
+                       (root == g_xsdt ? 3 : 2);
         const uint8_t* entries = (const uint8_t*)root + sizeof(*root);
         for (size_t i = 0; i < count; i++) {
             uint64_t address = 0;

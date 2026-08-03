@@ -56,10 +56,12 @@ jobs:
         timeout 12s "$qemu" \
           -cdrom src/build/${{ matrix.arch }}/tach.iso \
           -display none -serial stdio -no-reboot -smp 2 -m 256M \
+          -d int,cpu_reset -D qemu-debug.log \
           > boot.log 2>&1
         status=$?
         set -e
         cat boot.log
+        tail -200 qemu-debug.log
         test "$status" -eq 124
         grep -F "scheduler: 2 CPU(s)" boot.log
         grep -F "PID 1 executing /sbin/init in userspace" boot.log
