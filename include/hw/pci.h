@@ -51,5 +51,8 @@ uint32_t pci_read_config(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset
 void pci_write_config(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset, uint32_t value);
 struct pci_device* pci_find_device(uint16_t vendor_id, uint16_t device_id);
 void pci_enumerate_devices(void);
+int pci_scan(void (*callback)(uint32_t encoded_bdf));
+size_t pci_device_count(void);
+struct pci_device* pci_device_at(size_t index);
 
 #endif /* _HW_PCI_H */

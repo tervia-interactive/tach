@@ -278,7 +278,11 @@ struct process* process_fork(struct process* parent) {
     child->brk_start = parent->brk_start;
     child->brk_end = parent->brk_end;
     child->user_context = parent->user_context;
+#if defined(__riscv)
+    child->user_context.regs[10] = 0;
+#else
     child->user_context.regs[0] = 0;
+#endif
     memcpy(child->signal_actions, parent->signal_actions,
            sizeof(child->signal_actions));
     child->signal_blocked = parent->signal_blocked;

@@ -53,7 +53,8 @@ void arch_smp_secondary_init(uint32_t cpu) {
     (void)cpu;
     extern void trap_vector(void);
     uintptr_t vector = (uintptr_t)trap_vector;
-    __asm__ volatile("csrw stvec, %0" :: "r"(vector) : "memory");
+    __asm__ volatile("csrw stvec, %0\ncsrw sscratch, sp" ::
+                     "r"(vector) : "memory");
     arch_paging_switch(arch_paging_kernel_root());
 }
 void arch_smp_send_ipi(uint32_t cpu, uint32_t vector) {

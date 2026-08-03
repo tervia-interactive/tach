@@ -29,7 +29,7 @@ struct user_context {
     uintptr_t pc;
     uintptr_t sp;
     uintptr_t flags;
-    uintptr_t regs[16];
+    uintptr_t regs[32];
 };
 
 struct process {

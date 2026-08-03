@@ -35,7 +35,9 @@
 #include <fs/devfs.h>
 #include <fs/procfs.h>
 #include <fs/initrd.h>
+#include <fs/fat32.h>
 #include <drivers/block/ahci.h>
+#include <drivers/block/block.h>
 #include <term/tty.h>
 #include <term/vterm.h>
 #include <term/shell.h>
@@ -68,6 +70,9 @@ static rwlock_t g_boot_rwlock;
 static tty_t g_tty0;
 static vterm_t g_vterm0;
 
+extern const uint8_t embedded_initrd_start[];
+extern const uint8_t embedded_initrd_end[];
+
 void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     hal_console_early_init();
     klog_init();
@@ -90,13 +95,27 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
               "x86_64"
 #elif defined(__i386__)
               "i686"
+#elif defined(__aarch64__)
+              "aarch64"
+#elif defined(__arm__)
+              "arm32"
+#elif defined(__riscv) && __riscv_xlen == 64
+              "riscv64"
+#elif defined(__riscv)
+              "riscv32"
 #else
               "unknown"
 #endif
     );
     klog_info("tach", "command line: (none)");
 
+#if defined(__x86_64__) || defined(__i386__)
     klog_info("hal", "console: VGA text 80x25 + 16550 UART (COM1) online");
+#elif defined(__aarch64__) || defined(__arm__)
+    klog_info("hal", "console: PL011 UART online");
+#elif defined(__riscv)
+    klog_info("hal", "console: SBI console online");
+#endif
     acpi_init();
     klog_info("cpu", "boot CPU online; firmware topology discovery complete");
 
@@ -161,10 +180,17 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     vfs_init();
     const void* initrd_address;
     size_t initrd_size;
-    if (multiboot_get_module(0, &initrd_address, &initrd_size, NULL) == 0) {
+    int module_result = multiboot_get_module(0, &initrd_address,
+                                              &initrd_size, NULL);
+    if (module_result < 0) {
+        initrd_address = embedded_initrd_start;
+        initrd_size = (size_t)(embedded_initrd_end - embedded_initrd_start);
+    }
+    if (initrd_size) {
         int files = initrd_parse((void*)initrd_address, initrd_size);
         if (files >= 0) {
-            klog_info("initrd", "mounted USTAR module (%d files, %u bytes)",
+            klog_info("initrd", "%s USTAR (%d files, %u bytes)",
+                      module_result == 0 ? "mounted boot" : "mounted embedded",
                       files, (unsigned)initrd_size);
         } else {
             klog_warn("initrd", "boot module is not a valid USTAR archive");
@@ -177,15 +203,27 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     klog_info("procfs", "registered, mounting /proc");
     procfs_init();
 
-    klog_warn("ahci", "no AHCI controller found on PCI bus, disk subsystem unavailable");
-    ahci_init();
+    int disks = ahci_init();
+    if (disks < 0) {
+        klog_warn("ahci", "no usable AHCI SATA disk found");
+    } else {
+        struct vnode* disk_root = NULL;
+        int mounted = fat32_mount(block_device_at(0), &disk_root);
+        if (mounted == 0 && vfs_mount("/disk", disk_root) == 0)
+            klog_info("fat32", "mounted %s persistently at /disk",
+                      block_device_at(0)->name);
+        else
+            klog_warn("fat32", "disk is not a mountable FAT32 volume");
+    }
 
+#if defined(__x86_64__) || defined(__i386__)
     klog_info("input", "ps2: initializing 8042 keyboard controller");
     if (keyboard_ps2_init() == 0) {
         klog_info("input", "ps2: keyboard ready on IRQ1");
     } else {
         klog_err("input", "ps2: keyboard controller self-test failed");
     }
+#endif
 
     klog_info("rtc", "cmos: registering real-time clock");
     rtc_cmos_init();

@@ -76,6 +76,7 @@ exception_vector_el1:
 
 aarch64_sync_entry:
     SAVE_ALL
+    mov x0, sp
     bl aarch64_sync_handler
     RESTORE_ALL
     eret

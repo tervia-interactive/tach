@@ -25,6 +25,7 @@
 #define SYS_CHMOD       15
 #define SYS_LCHOWN      16
 #define SYS_BRK         17
+#define SYS_LSEEK       19
 #define SYS_GETPID      20
 #define SYS_MOUNT       21
 #define SYS_UMOUNT      22
@@ -35,6 +36,9 @@
 #define SYS_MMAP        90
 #define SYS_MUNMAP      91
 #define SYS_KILL        37
+#define SYS_MKDIR       39
+#define SYS_GETDENTS    78
+#define SYS_SYNC        87
 #define SYSCALL_TABLE_SIZE 128
 
 typedef long (*syscall_handler_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);

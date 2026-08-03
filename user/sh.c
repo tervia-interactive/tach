@@ -42,7 +42,8 @@ int main(void) {
         int argc = split(line, argv, 16);
         if (!argc) continue;
         if (strcmp(argv[0], "help") == 0) {
-            puts_fd(1, "help echo pid run exit\n");
+            puts_fd(1, "builtins: help echo pid clear exit\n");
+            puts_fd(1, "programs: ls cat mkdir rm touch write cp sync uname\n");
         } else if (strcmp(argv[0], "echo") == 0) {
             for (int i = 1; i < argc; i++) {
                 if (i > 1) puts_fd(1, " ");
@@ -50,8 +51,12 @@ int main(void) {
             }
             puts_fd(1, "\n");
         } else if (strcmp(argv[0], "pid") == 0) {
-            char digit = (char)('0' + (getpid() % 10));
+            pid_t value = getpid();
+            while (value >= 10) value -= 10;
+            char digit = (char)('0' + value);
             puts_fd(1, "pid="); (void)write(1, &digit, 1); puts_fd(1, "\n");
+        } else if (strcmp(argv[0], "clear") == 0) {
+            puts_fd(1, "\033[2J\033[H");
         } else if (strcmp(argv[0], "exit") == 0) {
             return 0;
         } else {

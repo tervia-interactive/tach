@@ -53,7 +53,11 @@ test-host:
 		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c \
 		-o src/build/host/heap-test
 	@src/build/host/heap-test
-	@echo "Host userspace, PMM, VMM/ELF/fault, heap/slab, preemption, process, signal, and semaphore tests passed."
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
+		tests/host/storage_test.c src/lib/string.c src/fs/vfs.c src/fs/fat32.c \
+		src/drivers/block/block.c -o src/build/host/storage-test
+	@src/build/host/storage-test
+	@echo "Host userspace, PMM, VMM/ELF/fault, heap/slab, storage, preemption, process, signal, and semaphore tests passed."
 
 clean:
 	rm -rf src/build/

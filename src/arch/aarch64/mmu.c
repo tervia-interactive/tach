@@ -88,6 +88,8 @@ int arch_paging_init(void) {
     if (!g_kernel_root || !level1) return -ENOMEM;
     g_kernel_root[0] = (uint64_t)(uintptr_t)level1 | A64_VALID | A64_TABLE;
     level1[0] = A64_VALID | A64_AF | A64_SH_INNER | A64_ATTR_NORMAL;
+    level1[1] = 0x40000000ULL | A64_VALID | A64_AF | A64_SH_INNER |
+                A64_ATTR_NORMAL;
 
     uint64_t mair = (0x04ULL << 0) | (0xffULL << 8);
     uint64_t tcr = 16ULL | (1ULL << 8) | (1ULL << 10) |

@@ -1,11 +1,11 @@
 /* tach - ARM 32-bit Linker Script */
-/* ARM kernel linked at 0x00010000 (typical load address) */
+/* QEMU virt RAM starts at 0x40000000 and loads the kernel at +0x10000. */
 
 ENTRY(_start)
 
 SECTIONS
 {
-    . = 0x00010000;
+    . = 0x40010000;
 
     .text ALIGN(4K) :
     {
@@ -30,6 +30,6 @@ SECTIONS
         __bss_end = .;
     }
 
-    __kernel_start = 0x00010000;
+    __kernel_start = 0x40010000;
     __kernel_end = .;
 }

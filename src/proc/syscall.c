@@ -103,6 +103,7 @@ static long sys_write(uint64_t fd, uint64_t buffer, uint64_t count,
     if (!entry || (entry->flags & O_ACCMODE) == O_RDONLY) {
         return -EBADF;
     }
+    if (entry->flags & O_APPEND) entry->offset = (int64_t)entry->vnode->size;
     uint8_t temporary[256];
     size_t total = 0;
     while (total < (size_t)count) {
@@ -157,6 +158,73 @@ static long sys_close(uint64_t fd, uint64_t unused2, uint64_t unused3,
     (void)vfs_close(entry->vnode);
     fd_put(proc->fds, (int)fd);
     return 0;
+}
+
+static long sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence,
+                      uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    struct fd_entry* entry = proc ? fd_get(proc->fds, (int)fd) : NULL;
+    if (!entry) return -EBADF;
+    int64_t signed_offset = (int64_t)offset;
+    int64_t base = whence == 0 ? 0 : whence == 1 ? entry->offset :
+        whence == 2 ? (int64_t)entry->vnode->size : -1;
+    if (base < 0 || (signed_offset < 0 && -signed_offset > base))
+        return -EINVAL;
+    if (signed_offset > 0 && base > INT64_MAX - signed_offset)
+        return -EOVERFLOW;
+    entry->offset = base + signed_offset;
+    return (long)entry->offset;
+}
+
+static long sys_getdents(uint64_t fd, uint64_t buffer, uint64_t count,
+                         uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    struct fd_entry* descriptor = proc ? fd_get(proc->fds, (int)fd) : NULL;
+    if (!descriptor || !buffer) return -EBADF;
+    if (descriptor->vnode->type != VNODE_DIR) return -ENOTDIR;
+    size_t total = 0;
+    while (count - total >= sizeof(struct dirent)) {
+        struct dirent entry;
+        int result = vfs_readdir(descriptor->vnode, &entry, descriptor->offset);
+        if (result < 0) return total ? (long)total : result;
+        if (!result) break;
+        if (copy_to_caller(proc, (uint8_t*)(uintptr_t)buffer + total,
+                           &entry, sizeof(entry)) < 0) return -EFAULT;
+        descriptor->offset = entry.d_off;
+        total += sizeof(entry);
+    }
+    return (long)total;
+}
+
+static long sys_mkdir(uint64_t path, uint64_t mode, uint64_t unused3,
+                      uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)mode; (void)unused3; (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc || !path) return -EFAULT;
+    char local_path[256];
+    int result = copy_path_from_caller(proc, local_path, sizeof(local_path),
+                                       (const char*)(uintptr_t)path);
+    return result < 0 ? result : vfs_mkdir(local_path);
+}
+
+static long sys_unlink(uint64_t path, uint64_t unused2, uint64_t unused3,
+                       uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused2; (void)unused3; (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc || !path) return -EFAULT;
+    char local_path[256];
+    int result = copy_path_from_caller(proc, local_path, sizeof(local_path),
+                                       (const char*)(uintptr_t)path);
+    return result < 0 ? result : vfs_unlink(local_path);
+}
+
+static long sys_sync(uint64_t unused1, uint64_t unused2, uint64_t unused3,
+                     uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused1; (void)unused2; (void)unused3;
+    (void)unused4; (void)unused5; (void)unused6;
+    return vfs_sync();
 }
 
 static long sys_getpid(uint64_t unused1, uint64_t unused2, uint64_t unused3,
@@ -344,6 +412,7 @@ void syscall_init(void) {
     syscall_register(SYS_WRITE, sys_write);
     syscall_register(SYS_OPEN, sys_open);
     syscall_register(SYS_CLOSE, sys_close);
+    syscall_register(SYS_LSEEK, sys_lseek);
     syscall_register(SYS_GETPID, sys_getpid);
     syscall_register(SYS_FORK, sys_fork);
     syscall_register(SYS_EXECVE, sys_execve);
@@ -353,6 +422,10 @@ void syscall_init(void) {
     syscall_register(SYS_BRK, sys_brk);
     syscall_register(SYS_MMAP, sys_mmap);
     syscall_register(SYS_MUNMAP, sys_munmap);
+    syscall_register(SYS_GETDENTS, sys_getdents);
+    syscall_register(SYS_MKDIR, sys_mkdir);
+    syscall_register(SYS_UNLINK, sys_unlink);
+    syscall_register(SYS_SYNC, sys_sync);
 }
 
 long syscall_dispatch(int num, uint64_t arg1, uint64_t arg2, uint64_t arg3,
@@ -376,6 +449,7 @@ const char* syscall_name(int num) {
         case SYS_WRITE: return "write";
         case SYS_OPEN: return "open";
         case SYS_CLOSE: return "close";
+        case SYS_LSEEK: return "lseek";
         case SYS_GETPID: return "getpid";
         case SYS_FORK: return "fork";
         case SYS_EXECVE: return "execve";
@@ -385,6 +459,10 @@ const char* syscall_name(int num) {
         case SYS_BRK: return "brk";
         case SYS_MMAP: return "mmap";
         case SYS_MUNMAP: return "munmap";
+        case SYS_GETDENTS: return "getdents";
+        case SYS_MKDIR: return "mkdir";
+        case SYS_UNLINK: return "unlink";
+        case SYS_SYNC: return "sync";
         default: return NULL;
     }
 }
