@@ -17,4 +17,8 @@ embedded_initrd_start:
     .incbin "build/riscv32/user/initrd.tar"
 #endif
 embedded_initrd_end:
+#if defined(__arm__)
+.section .note.GNU-stack,"",%progbits
+#else
 .section .note.GNU-stack,"",@progbits
+#endif

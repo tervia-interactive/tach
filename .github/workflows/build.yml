@@ -58,6 +58,7 @@ jobs:
         fi
         timeout 12s "$qemu" \
           -machine q35 \
+          -boot d \
           -cdrom src/build/${{ matrix.arch }}/tach.iso \
           -drive file=disk.img,format=raw,if=ide \
           -display none -serial stdio -no-reboot -smp 2 -m 256M \
@@ -146,7 +147,7 @@ jobs:
         fi
         timeout 15s "$qemu" -machine virt -cpu "$cpu" \
           -kernel src/build/${{ matrix.arch }}/tach.bin \
-          -nographic -no-reboot -smp 2 -m 256M > boot.log 2>&1
+          -nographic -no-reboot -smp 1 -m 256M > boot.log 2>&1
         status=$?
         set -e
         cat boot.log
@@ -197,15 +198,21 @@ jobs:
     - name: U-mode userspace boot smoke test
       shell: bash
       run: |
-        set +e
         if [ "${{ matrix.arch }}" = riscv32 ]; then
           qemu=qemu-system-riscv32
+          git clone --depth 1 --branch v1.4.1 \
+            https://github.com/riscv-software-src/opensbi.git /tmp/opensbi
+          make -C /tmp/opensbi CROSS_COMPILE=riscv64-linux-gnu- \
+            PLATFORM=generic PLATFORM_RISCV_XLEN=32
+          bios=/tmp/opensbi/build/platform/generic/firmware/fw_dynamic.bin
         else
           qemu=qemu-system-riscv64
+          bios=default
         fi
-        timeout 15s "$qemu" -machine virt -bios default \
+        set +e
+        timeout 15s "$qemu" -machine virt -bios "$bios" \
           -kernel src/build/${{ matrix.arch }}/tach.bin \
-          -nographic -no-reboot -smp 2 -m 256M > boot.log 2>&1
+          -nographic -no-reboot -smp 1 -m 256M > boot.log 2>&1
         status=$?
         set -e
         cat boot.log

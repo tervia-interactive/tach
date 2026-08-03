@@ -44,7 +44,7 @@ static int split_section(uint32_t* root, size_t index) {
     if (!table) return -ENOMEM;
     uint32_t base = old & 0xfff00000u;
     for (size_t i = 0; i < 256; i++) {
-        table[i] = base + (uint32_t)(i * PAGE_SIZE) |
+        table[i] = (base + (uint32_t)(i * PAGE_SIZE)) |
                    ARM_L2_SMALL | (1u << 4);
     }
     root[index] = ((uint32_t)(uintptr_t)table & ARM_L1_ADDR) | ARM_L1_COARSE;
