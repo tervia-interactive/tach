@@ -98,11 +98,10 @@ int main(void) {
         "exit 7\n";
 
     CHECK(userland_bootstrap(&tty) == 7);
-    CHECK(process_count() == 2);
+    CHECK(process_count() == 1);
     CHECK(process_get(1) != NULL);
-    CHECK(process_get(2) != NULL);
+    CHECK(process_get(2) == NULL);
     CHECK(process_get(1)->state == PROCESS_STATE_RUNNING);
-    CHECK(process_get(2)->state == PROCESS_STATE_ZOMBIE);
     CHECK(process_get_current() == process_get(1));
 
     CHECK(contains(g_output, "tach ("));

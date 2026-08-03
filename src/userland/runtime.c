@@ -54,9 +54,16 @@ int userland_bootstrap(tty_t* tty) {
     process_set_current(shell);
     shell_entry(tty);
     process_set_current(init);
-#else
-    scheduler_yield();
 #endif
-    int status = shell->exit_code;
+
+    /* PID 1 must wait for and reap its shell.  A single yield is not a
+     * completion barrier: once timer preemption is enabled, the scheduler
+     * can return to init on the very next tick while the shell is still
+     * running. */
+    int status = 0;
+    pid_t waited = process_waitpid(shell->pid, &status, 0);
+    if ((int32_t)waited < 0) {
+        return (int32_t)waited;
+    }
     return status;
 }
