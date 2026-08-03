@@ -7,7 +7,7 @@
 #define PSCI_AFFINITY_INFO 0xc4000004u
 static uint64_t g_mpidrs[MAX_CPUS];
 static int g_cpu_count = 1;
-static uintptr_t g_secondary_stacks[MAX_CPUS];
+static uintptr_t g_secondary_stacks[MAX_CPUS] __attribute__((used));
 static long psci(uint64_t function, uint64_t a0, uint64_t a1, uint64_t a2) {
     register uint64_t x0 __asm__("x0") = function;
     register uint64_t x1 __asm__("x1") = a0;

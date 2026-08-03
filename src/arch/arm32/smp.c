@@ -7,7 +7,7 @@
 #define PSCI_AFFINITY_INFO 0x84000004u
 static uint32_t g_mpidrs[MAX_CPUS];
 static int g_cpu_count = 1;
-static uintptr_t g_secondary_stacks[MAX_CPUS];
+static uintptr_t g_secondary_stacks[MAX_CPUS] __attribute__((used));
 static int32_t psci(uint32_t function, uint32_t a0, uint32_t a1, uint32_t a2) {
     register uint32_t r0 __asm__("r0") = function;
     register uint32_t r1 __asm__("r1") = a0;

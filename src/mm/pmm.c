@@ -118,6 +118,12 @@ void pmm_init(const mem_region_t* memory_map, size_t region_count) {
     }
 
     pmm_mark_region_used(0, PAGE_SIZE);
+#if !defined(TACH_HOST_TEST) && (defined(__x86_64__) || defined(__i386__))
+    /* INIT/SIPI starts APs in real mode at vector 0x08.  Keep the physical
+     * trampoline page out of the allocator before paging, heap, or process
+     * setup has a chance to reuse and later corrupt it. */
+    pmm_mark_region_used(0x8000u, PAGE_SIZE);
+#endif
 #ifndef TACH_HOST_TEST
     pmm_mark_region_used((phys_addr_t)(uintptr_t)__kernel_start,
                          (size_t)(__kernel_end - __kernel_start));

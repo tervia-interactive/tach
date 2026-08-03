@@ -59,6 +59,7 @@ jobs:
           > boot.log 2>&1
         status=$?
         set -e
+        cat boot.log
         test "$status" -eq 124
         grep -F "scheduler: 2 CPU(s)" boot.log
         grep -F "PID 1 executing /sbin/init in userspace" boot.log

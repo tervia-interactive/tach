@@ -22,7 +22,7 @@ else ifeq ($(ARCH),x86_64)
     LINKER_SCRIPT := $(ROOTDIR)/link/x86_64.ld
 else ifeq ($(ARCH),arm32)
     override CROSS_COMPILE := arm-linux-gnueabihf-
-    ARCH_CFLAGS := -march=armv7-a -mfloat-abi=softfp
+    ARCH_CFLAGS := -march=armv7-a -marm -mcpu=cortex-a7 -mfloat-abi=softfp
     LINKER_SCRIPT := $(ROOTDIR)/link/arm32.ld
 else ifeq ($(ARCH),aarch64)
     override CROSS_COMPILE := aarch64-linux-gnu-

@@ -6,7 +6,7 @@
 
 static uintptr_t g_harts[MAX_CPUS];
 static int g_hart_count = 1;
-static uintptr_t g_secondary_stacks[MAX_CPUS];
+static uintptr_t g_secondary_stacks[MAX_CPUS] __attribute__((used));
 static uintptr_t current_hart(void) {
     uintptr_t hart; __asm__ volatile("mv %0, tp" : "=r"(hart)); return hart;
 }
