@@ -36,6 +36,7 @@ jobs:
           grub-pc-bin \
           grub-common \
           mtools \
+          dosfstools \
           qemu-system-x86
 
     - name: Build ${{ matrix.arch }}
@@ -47,6 +48,8 @@ jobs:
     - name: SMP and userspace boot smoke test
       shell: bash
       run: |
+        truncate -s 128M disk.img
+        mkfs.fat -F 32 disk.img
         set +e
         if [ "${{ matrix.arch }}" = i686 ]; then
           qemu=qemu-system-i386
@@ -54,7 +57,10 @@ jobs:
           qemu=qemu-system-x86_64
         fi
         timeout 12s "$qemu" \
+          -machine q35 \
+          -boot d \
           -cdrom src/build/${{ matrix.arch }}/tach.iso \
+          -drive file=disk.img,format=raw,if=ide \
           -display none -serial stdio -no-reboot -smp 2 -m 256M \
           > boot.log 2>&1
         status=$?
@@ -64,8 +70,36 @@ jobs:
         grep -F "scheduler: 2 CPU(s)" boot.log
         grep -F "PID 1 executing /sbin/init in userspace" boot.log
         grep -F "tach init: PID 1 online" boot.log
+        grep -F "external ls/cat verified" boot.log
         grep -F "tach userspace shell" boot.log
+        grep -F "SATA disk(s) online" boot.log
+        grep -F "mounted sda persistently at /disk" boot.log
+        grep -F "persistent storage seeded" boot.log
         ! grep -F "userspace exited" boot.log
+
+        set +e
+        timeout 12s "$qemu" \
+          -machine q35 \
+          -boot d \
+          -cdrom src/build/${{ matrix.arch }}/tach.iso \
+          -drive file=disk.img,format=raw,if=ide \
+          -display none -serial stdio -no-reboot -smp 2 -m 256M \
+          > reboot.log 2>&1
+        status=$?
+        set -e
+        cat reboot.log
+        test "$status" -eq 124
+        grep -F "persistent storage survived reboot" reboot.log
+        grep -F "tach persistent storage verified" reboot.log
+        ! grep -F "userspace exited" reboot.log
+
+    - name: Verify external userspace ELFs
+      run: |
+        test -x src/build/${{ matrix.arch }}/rootfs/sbin/init
+        for program in sh ls cat mkdir rm touch write cp sync uname; do
+          test -x "src/build/${{ matrix.arch }}/rootfs/bin/$program"
+          readelf -h "src/build/${{ matrix.arch }}/rootfs/bin/$program" | grep -F "ELF"
+        done
 
     - name: Upload binary
       uses: actions/upload-artifact@v6
@@ -97,7 +131,8 @@ jobs:
           gcc-arm-linux-gnueabihf \
           gcc-aarch64-linux-gnu \
           binutils-arm-linux-gnueabihf \
-          binutils-aarch64-linux-gnu
+          binutils-aarch64-linux-gnu \
+          qemu-system-arm
 
     - name: Build ${{ matrix.arch }}
       run: |
@@ -106,6 +141,44 @@ jobs:
         else
           make ARCH=aarch64 CROSS_COMPILE=aarch64-linux-gnu-
         fi
+
+    - name: Verify isolated userspace payload
+      run: |
+        test -f src/build/${{ matrix.arch }}/user/initrd.tar
+        test -x src/build/${{ matrix.arch }}/rootfs/sbin/init
+        for program in sh ls cat mkdir rm touch write cp sync uname; do
+          test -x "src/build/${{ matrix.arch }}/rootfs/bin/$program"
+          readelf -h "src/build/${{ matrix.arch }}/rootfs/bin/$program" | grep -F "ELF"
+        done
+
+    - name: EL0 userspace boot smoke test
+      shell: bash
+      run: |
+        set +e
+        if [ "${{ matrix.arch }}" = arm32 ]; then
+          qemu=qemu-system-arm
+          cpu=cortex-a15
+        else
+          qemu=qemu-system-aarch64
+          cpu=cortex-a57
+        fi
+        kernel=src/build/${{ matrix.arch }}/tach.bin
+        if [ "${{ matrix.arch }}" = aarch64 ]; then
+          aarch64-linux-gnu-objcopy -O binary "$kernel" tach-aarch64.img
+          kernel=tach-aarch64.img
+        fi
+        timeout 15s "$qemu" -machine virt -cpu "$cpu" \
+          -kernel "$kernel" \
+          -nographic -no-reboot -smp 1 -m 256M > boot.log 2>&1
+        status=$?
+        set -e
+        cat boot.log
+        test "$status" -eq 124
+        grep -F "PID 1 executing /sbin/init in userspace" boot.log
+        grep -F "tach init: PID 1 online" boot.log
+        grep -F "external ls/cat verified" boot.log
+        grep -F "tach userspace shell" boot.log
+        ! grep -F "userspace exited" boot.log
 
     - name: Upload binary
       uses: actions/upload-artifact@v6
@@ -128,11 +201,49 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           gcc-riscv64-linux-gnu \
-          binutils-riscv64-linux-gnu
+          binutils-riscv64-linux-gnu \
+          qemu-system-misc
 
     - name: Build ${{ matrix.arch }}
       run: |
         make ARCH=${{ matrix.arch }} CROSS_COMPILE=riscv64-linux-gnu-
+
+    - name: Verify isolated userspace payload
+      run: |
+        test -f src/build/${{ matrix.arch }}/user/initrd.tar
+        test -x src/build/${{ matrix.arch }}/rootfs/sbin/init
+        for program in sh ls cat mkdir rm touch write cp sync uname; do
+          test -x "src/build/${{ matrix.arch }}/rootfs/bin/$program"
+          readelf -h "src/build/${{ matrix.arch }}/rootfs/bin/$program" | grep -F "ELF"
+        done
+
+    - name: U-mode userspace boot smoke test
+      shell: bash
+      run: |
+        if [ "${{ matrix.arch }}" = riscv32 ]; then
+          qemu=qemu-system-riscv32
+          git clone --depth 1 --branch v1.4 \
+            https://github.com/riscv-software-src/opensbi.git /tmp/opensbi
+          make -C /tmp/opensbi CROSS_COMPILE=riscv64-linux-gnu- \
+            PLATFORM=generic PLATFORM_RISCV_XLEN=32
+          bios=/tmp/opensbi/build/platform/generic/firmware/fw_dynamic.bin
+        else
+          qemu=qemu-system-riscv64
+          bios=default
+        fi
+        set +e
+        timeout 15s "$qemu" -machine virt -bios "$bios" \
+          -kernel src/build/${{ matrix.arch }}/tach.bin \
+          -nographic -no-reboot -smp 1 -m 256M > boot.log 2>&1
+        status=$?
+        set -e
+        cat boot.log
+        test "$status" -eq 124
+        grep -F "PID 1 executing /sbin/init in userspace" boot.log
+        grep -F "tach init: PID 1 online" boot.log
+        grep -F "external ls/cat verified" boot.log
+        grep -F "tach userspace shell" boot.log
+        ! grep -F "userspace exited" boot.log
 
     - name: Upload binary
       uses: actions/upload-artifact@v6
@@ -142,7 +253,7 @@ jobs:
         retention-days: 30
 
   release:
-    needs: [build-x86, build-arm]
+    needs: [build-x86, build-arm, build-riscv]
     runs-on: ubuntu-22.04
     if: github.event_name == 'release'
 

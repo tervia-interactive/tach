@@ -44,7 +44,7 @@ static int split_section(uint32_t* root, size_t index) {
     if (!table) return -ENOMEM;
     uint32_t base = old & 0xfff00000u;
     for (size_t i = 0; i < 256; i++) {
-        table[i] = base + (uint32_t)(i * PAGE_SIZE) |
+        table[i] = (base + (uint32_t)(i * PAGE_SIZE)) |
                    ARM_L2_SMALL | (1u << 4);
     }
     root[index] = ((uint32_t)(uintptr_t)table & ARM_L1_ADDR) | ARM_L1_COARSE;
@@ -54,7 +54,14 @@ static int split_section(uint32_t* root, size_t index) {
 int arch_paging_init(void) {
     g_kernel_root = allocate_l1();
     if (!g_kernel_root) return -ENOMEM;
-    for (uint32_t address = 0; address < 0x08000000u;
+    /* Keep QEMU virt RAM plus GICv2 (0x08000000) and PL011 (0x09000000)
+     * identity-mapped in the privileged half of every address space. */
+    for (uint32_t address = 0; address < 0x10000000u;
+        address += 0x00100000u) {
+        g_kernel_root[address >> 20] =
+            address | ARM_L1_SECTION | (1u << 10);
+    }
+    for (uint32_t address = 0x40000000u; address < 0x48000000u;
          address += 0x00100000u) {
         g_kernel_root[address >> 20] =
             address | ARM_L1_SECTION | (1u << 10) | (1u << 3) | (1u << 2);

@@ -233,7 +233,10 @@ int process_start_user(struct process* process, void* entry,
     memset(&process->user_context, 0, sizeof(process->user_context));
     process->user_context.pc = (uintptr_t)entry;
     process->user_context.sp = stack_top;
-    process->user_context.flags = 0x202;
+    /* Architecture entry code supplies any mandatory interrupt-enable bits.
+     * Keeping an x86 EFLAGS value here is actively wrong on ARM, where
+     * 0x200 is CPSR.E (data endianness). */
+    process->user_context.flags = 0;
     process->state = PROCESS_STATE_RUNNING;
     scheduler_add(process);
     return 0;
@@ -278,7 +281,11 @@ struct process* process_fork(struct process* parent) {
     child->brk_start = parent->brk_start;
     child->brk_end = parent->brk_end;
     child->user_context = parent->user_context;
+#if defined(__riscv)
+    child->user_context.regs[10] = 0;
+#else
     child->user_context.regs[0] = 0;
+#endif
     memcpy(child->signal_actions, parent->signal_actions,
            sizeof(child->signal_actions));
     child->signal_blocked = parent->signal_blocked;
@@ -369,7 +376,7 @@ int process_exec_image_args(struct process* process, const void* image,
     memset(&process->user_context, 0, sizeof(process->user_context));
     process->user_context.pc = (uintptr_t)loader.entry_point;
     process->user_context.sp = initial_sp;
-    process->user_context.flags = 0x202;
+    process->user_context.flags = 0;
     process->signal_pending = 0;
     process->state = PROCESS_STATE_RUNNING;
     scheduler_add(process);

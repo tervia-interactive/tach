@@ -30,11 +30,13 @@ else ifeq ($(ARCH),aarch64)
     LINKER_SCRIPT := $(ROOTDIR)/link/aarch64.ld
 else ifeq ($(ARCH),riscv32)
     override CROSS_COMPILE := riscv64-linux-gnu-
-    ARCH_CFLAGS := -march=rv32imac_zicsr -mabi=ilp32 -mcmodel=medany
+    ARCH_CFLAGS := -march=rv32imac_zicsr -mabi=ilp32 -mcmodel=medany \
+                   -msmall-data-limit=0
     LINKER_SCRIPT := $(ROOTDIR)/link/riscv32.ld
 else ifeq ($(ARCH),riscv64)
     override CROSS_COMPILE := riscv64-linux-gnu-
-    ARCH_CFLAGS := -march=rv64imac_zicsr -mabi=lp64 -mcmodel=medany
+    ARCH_CFLAGS := -march=rv64imac_zicsr -mabi=lp64 -mcmodel=medany \
+                   -msmall-data-limit=0
     LINKER_SCRIPT := $(ROOTDIR)/link/riscv64.ld
 endif
 
@@ -78,6 +80,12 @@ $(OBJ_DIR)/%.o: %.c
 $(OBJ_DIR)/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/userland/embedded_initrd.o: $(BUILD_DIR)/user/initrd.tar
+
+$(BUILD_DIR)/user/initrd.tar:
+	$(MAKE) -C $(ROOTDIR)/user ARCH=$(ARCH) BUILD=$(BUILD_DIR)/user \
+		ROOTFS=$(BUILD_DIR)/rootfs
 
 $(KERNEL_BIN): $(OBJECTS)
 	$(LD) $(LDFLAGS) -o $@ $(OBJECTS)

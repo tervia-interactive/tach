@@ -51,13 +51,14 @@ void hal_memmap_use_platform_fallback(void) {
     hal_memmap_add(0, 0x100000, MEM_REGION_RESERVED);
     hal_memmap_add(0x100000, 0x0ff00000, MEM_REGION_USABLE);
 #elif defined(__aarch64__)
-    hal_memmap_add(0, 0x80000, MEM_REGION_RESERVED);
-    hal_memmap_add(0x80000, 0x1ff80000, MEM_REGION_USABLE);
+    hal_memmap_add(0, 0x40000000, MEM_REGION_RESERVED);
+    hal_memmap_add(0x40000000, 0x10000000, MEM_REGION_USABLE);
 #elif defined(__arm__)
-    hal_memmap_add(0, 0x10000, MEM_REGION_RESERVED);
-    hal_memmap_add(0x10000, 0x07ff0000, MEM_REGION_USABLE);
+    hal_memmap_add(0, 0x40000000, MEM_REGION_RESERVED);
+    hal_memmap_add(0x40000000, 0x08000000, MEM_REGION_USABLE);
 #elif defined(__riscv)
-    hal_memmap_add(0x80000000ULL, 0x08000000ULL, MEM_REGION_USABLE);
+    hal_memmap_add(0x80000000ULL, 0x00200000ULL, MEM_REGION_RESERVED);
+    hal_memmap_add(0x80200000ULL, 0x07e00000ULL, MEM_REGION_USABLE);
 #else
     hal_memmap_add(0x100000, 0x03f00000, MEM_REGION_USABLE);
 #endif

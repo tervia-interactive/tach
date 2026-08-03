@@ -123,6 +123,20 @@ int main(void) {
     CHECK(fd == 3);
     CHECK(syscall_dispatch(SYS_CLOSE, (uint64_t)fd, 0, 0, 0, 0, 0) == 0);
 
+    const char fake_elf[] = "ELF";
+    CHECK(vfs_register_memfile("/bin/ls", fake_elf, sizeof(fake_elf)) == 0);
+    const char bin_path[] = "/bin";
+    fd = syscall_dispatch(SYS_OPEN, (uint64_t)(uintptr_t)bin_path,
+                          O_RDONLY, 0, 0, 0, 0);
+    CHECK(fd == 3);
+    struct dirent directory_entry;
+    CHECK(syscall_dispatch(SYS_GETDENTS, (uint64_t)fd,
+                           (uint64_t)(uintptr_t)&directory_entry,
+                           sizeof(directory_entry), 0, 0, 0) ==
+          (long)sizeof(directory_entry));
+    CHECK(strcmp(directory_entry.d_name, "ls") == 0);
+    CHECK(syscall_dispatch(SYS_CLOSE, (uint64_t)fd, 0, 0, 0, 0, 0) == 0);
+
     struct process* worker = process_create("worker");
     CHECK(worker != NULL);
     CHECK(process_start(worker, (void*)dummy_entry, NULL) == 0);

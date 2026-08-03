@@ -62,8 +62,9 @@ make clean
 # Run tests
 make test
 
-# Build crt0, libc, /sbin/init, /bin/sh and their USTAR initrd
+# Build crt0, libc, init, shell, and external commands for any target
 make userland ARCH=x86_64
+make userland ARCH=aarch64
 
 # Build an x86 ISO. The userspace initrd is generated and attached by default.
 make iso ARCH=x86_64
@@ -81,6 +82,13 @@ make format
 # x86/x86_64 (using ISO)
 qemu-system-i386 -cdrom src/build/i686/tach.iso
 qemu-system-x86_64 -cdrom src/build/x86_64/tach.iso
+
+# Boot with a persistent FAT32 SATA disk (mounted by tach at /disk)
+truncate -s 64M tach-disk.img
+mkfs.fat -F 32 tach-disk.img
+qemu-system-x86_64 -machine q35 \
+  -cdrom src/build/x86_64/tach.iso \
+  -drive file=tach-disk.img,format=raw,if=ide
 
 # Or using kernel directly
 qemu-system-i386 -kernel src/build/i686/tach.bin
@@ -209,12 +217,14 @@ tach/
   and RISC-V timer interrupts
 - Per-process file descriptor tables with inherited console standard streams
 - Syscalls for I/O plus `fork`, `execve`, `waitpid`, `kill`, `sigaction`,
-  `brk`, `mmap`, and `munmap`
+  `brk`, `mmap`, `munmap`, `getdents`, `lseek`, `mkdir`, `unlink`, and `sync`
 - Read-only shared fork mappings with first-write page-fault separation
 - Freestanding `_start`/crt0 and a minimal libc with syscall wrappers,
   string routines, and a `brk`-backed allocator
 - External `/sbin/init` as PID 1, using `fork`, `execve`, and `waitpid` to
-  supervise the ring-3 `/bin/sh`
+  supervise the isolated `/bin/sh`
+- Separate ELF utilities in `/bin`: `ls`, `cat`, `mkdir`, `rm`, `touch`,
+  `write`, `cp`, `sync`, and `uname`
 - Embedded init/shell retained only as a no-initrd fallback
 - `/dev/console` and `/dev/tty` through the VFS character-device interface
 - Interactive EN-US shell with quoting, command status, history, and line editing
@@ -223,19 +233,26 @@ tach/
 - USTAR initrd import and external ELF execution from the shell (`/bin` searched)
 - x86 and x86_64 ring-3 entry through per-process TSS kernel stacks,
   DPL3 `int 0x80`, and `iret`/`iretq`
+- ARM32 User mode, AArch64 EL0, and RISC-V U-mode entry with native
+  `svc`/`ecall` syscall and page-fault paths
 - Demand-grown user stacks and heap pages; invalid user faults become `SIGSEGV`
 - FIFO semaphores that block and wake processes through the scheduler
 
-On x86 targets, `make iso` builds and attaches the real userspace payload by
-default. Its ELF processes execute in ring 3 and enter the kernel with `int 0x80`.
-ARM/AArch64 and RISC-V have timer-driven SMP scheduling and isolated page tables,
-but their EL0/U-mode syscall entry is still future architecture work.
+Every architecture embeds its matching USTAR userspace payload in the kernel.
+On x86 targets, `make iso` also attaches it as a boot module. ELF processes run
+in ring 3, ARM User/EL0, or RISC-V U-mode and enter the kernel through the
+architecture's native syscall instruction.
 
 ### Hardware Support
 - VGA text mode console
 - Serial port (UART) debugging
 - PS/2 keyboard
-- ATA/AHCI storage
+- AHCI 1.0 SATA DMA on PCI x86 systems (command list, received FIS, PRDT)
+- Writable FAT32 volumes, including MBR FAT32 partitions, mounted at `/disk`
+- Persistent create/read/write/truncate/unlink/mkdir and mirrored FAT updates
+
+The current FAT32 writer uses short 8.3 names. Long-file-name entries are
+ignored safely and are planned as a separate extension.
 - USB (planned)
 - ACPI (x86) / Device Tree (ARM/RISC-V)
 - SMP startup through x86 INIT/SIPI, ARM PSCI CPU_ON, and RISC-V SBI HSM

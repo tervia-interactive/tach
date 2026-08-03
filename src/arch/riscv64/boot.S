@@ -15,6 +15,7 @@ _start:
     
     # Initialize stack pointer
     la sp, _stack_top
+    csrw sscratch, sp
     
     # Jump to kernel main
     li a0, 0

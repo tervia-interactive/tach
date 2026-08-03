@@ -1,11 +1,11 @@
 /* tach - RISC-V 64-bit Linker Script */
-/* RISC-V 64-bit kernel linked at 0x80000000 (typical load address) */
+/* OpenSBI occupies 0x80000000..0x801fffff; its payload starts at 0x80200000. */
 
 ENTRY(_start)
 
 SECTIONS
 {
-    . = 0x80000000;
+    . = 0x80200000;
 
     .text ALIGN(4K) :
     {
@@ -30,6 +30,6 @@ SECTIONS
         __bss_end = .;
     }
 
-    __kernel_start = 0x80000000;
+    __kernel_start = 0x80200000;
     __kernel_end = .;
 }

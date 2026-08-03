@@ -39,6 +39,7 @@ struct vnode {
     size_t refcount;
     size_t size;
     char path[128];
+    char name_storage[64];
 };
 
 struct vnode_ops {
@@ -46,7 +47,12 @@ struct vnode_ops {
     int (*close)(struct vnode* vn);
     ssize_t (*read)(struct vnode* vn, void* buf, size_t count, int64_t offset);
     ssize_t (*write)(struct vnode* vn, const void* buf, size_t count, int64_t offset);
-    int (*readdir)(struct vnode* vn, struct dirent* entry);
+    int (*readdir)(struct vnode* vn, struct dirent* entry, int64_t offset);
+    struct vnode* (*lookup)(struct vnode* vn, const char* name);
+    struct vnode* (*create)(struct vnode* vn, const char* name, int type);
+    int (*unlink)(struct vnode* vn, const char* name);
+    int (*truncate)(struct vnode* vn, size_t size);
+    int (*sync)(struct vnode* vn);
 };
 
 void vfs_init(void);
@@ -56,6 +62,10 @@ struct vnode* vfs_open(const char* path, int flags);
 int vfs_close(struct vnode* vn);
 ssize_t vfs_read(struct vnode* vn, void* buf, size_t count, int64_t offset);
 ssize_t vfs_write(struct vnode* vn, const void* buf, size_t count, int64_t offset);
+int vfs_readdir(struct vnode* vn, struct dirent* entry, int64_t offset);
+int vfs_mkdir(const char* path);
+int vfs_unlink(const char* path);
+int vfs_sync(void);
 struct vnode* vfs_console(void);
 int vfs_register_memfile(const char* path, const void* data, size_t size);
 int vfs_read_file(const char* path, const void** data, size_t* size);
