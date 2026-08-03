@@ -6,6 +6,7 @@
 #include "kernel/types.h"
 
 void hal_timer_init(void);
+void hal_timer_init_secondary(void);
 uint64_t hal_timer_get_ticks(void);
 uint64_t hal_timer_get_frequency(void);
 void hal_timer_sleep(uint64_t ms);

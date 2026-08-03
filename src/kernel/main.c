@@ -97,8 +97,8 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     klog_info("tach", "command line: (none)");
 
     klog_info("hal", "console: VGA text 80x25 + 16550 UART (COM1) online");
-    klog_info("cpu", "boot CPU online, %u logical CPU(s) detected",
-              (unsigned)hal_smp_cpu_count());
+    acpi_init();
+    klog_info("cpu", "boot CPU online; firmware topology discovery complete");
 
     klog_info("mm", "pmm: initializing physical frame allocator");
     if (multiboot_parse(boot_magic, boot_info) <= 0) {
@@ -136,8 +136,10 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     scheduler_init();
     arch_user_init();
     hal_timer_init();
+    hal_smp_init();
     hal_irq_enable();
-    klog_info("proc", "scheduler: 100 Hz preemptive round-robin online");
+    klog_info("proc", "scheduler: %u CPU(s), per-CPU queues and preemption online",
+              (unsigned)hal_smp_cpu_count());
 
     klog_info("proc", "syscall: installing dispatch table");
     syscall_init();
@@ -148,8 +150,8 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     int pci_devices = pci_scan(NULL);
     klog_info("pci", "bus scan complete, %d device(s) found", pci_devices);
 
-    klog_warn("acpi", "no ACPI tables found in low memory, falling back to legacy PIC/PIT");
-    acpi_init();
+    if (!acpi_get_rsdp())
+        klog_warn("acpi", "no ACPI tables found; platform remains in UP mode");
 
     klog_info("dma", "isa-dma: initializing legacy DMA controller");
     dma_init();

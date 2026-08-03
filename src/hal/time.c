@@ -3,6 +3,7 @@
 #include <hal/cpu.h>
 #include <hal/irq.h>
 #include <hal/time.h>
+#include <hal/smp.h>
 #include <proc/scheduler.h>
 
 #define TACH_TIMER_HZ 100u
@@ -124,8 +125,32 @@ void hal_timer_init(void) {
 #endif
 }
 
+void hal_timer_init_secondary(void) {
+#ifdef TACH_HOST_TEST
+    return;
+#elif defined(__x86_64__) || defined(__i386__)
+    extern void x86_lapic_timer_init(void);
+    x86_lapic_timer_init();
+#elif defined(__aarch64__) || defined(__arm__)
+    gic_init();
+    gic_enable_irq(30);
+    timer_rearm();
+#if defined(__aarch64__)
+    uint64_t control = 1;
+    __asm__ volatile("msr cntp_ctl_el0, %0; isb" :: "r"(control));
+#else
+    uint32_t control = 1;
+    __asm__ volatile("mcr p15, 0, %0, c14, c2, 1" :: "r"(control));
+#endif
+#elif defined(__riscv)
+    uintptr_t timer_mask = (uintptr_t)1 << 5;
+    __asm__ volatile("csrs sie, %0" :: "r"(timer_mask) : "memory");
+    timer_rearm();
+#endif
+}
+
 void hal_timer_interrupt(void) {
-    g_timer_ticks++;
+    if (hal_smp_current_cpu() == 0) g_timer_ticks++;
     timer_rearm();
     scheduler_tick();
 }

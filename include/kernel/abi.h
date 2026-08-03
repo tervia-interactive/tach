@@ -11,31 +11,20 @@
 #define TACH_ABI_VERSION_MINOR 1
 
 /* Syscall numbers */
-#define SYS_READ        0
-#define SYS_WRITE       1
-#define SYS_OPEN        2
-#define SYS_CLOSE       3
-#define SYS_STAT        4
-#define SYS_FSTAT       5
-#define SYS_LSEEK       6
-#define SYS_MMAP        7
-#define SYS_MUNMAP      8
-#define SYS_BRK         9
-#define SYS_EXIT        10
-#define SYS_FORK        11
-#define SYS_EXEC        12
-#define SYS_WAITPID     13
-#define SYS_GETPID      14
-#define SYS_KILL        15
-#define SYS_SIGACTION   16
-#define SYS_THREAD_CREATE 17
-#define SYS_THREAD_EXIT   18
-#define SYS_PORT_CREATE   19
-#define SYS_PORT_SEND     20
-#define SYS_PORT_RECV     21
-#define SYS_SEM_CREATE    22
-#define SYS_SEM_ACQUIRE   23
-#define SYS_SEM_RELEASE   24
+#define SYS_EXIT        1
+#define SYS_FORK        2
+#define SYS_READ        3
+#define SYS_WRITE       4
+#define SYS_OPEN        5
+#define SYS_CLOSE       6
+#define SYS_WAITPID     7
+#define SYS_EXECVE      11
+#define SYS_BRK         17
+#define SYS_GETPID      20
+#define SYS_SIGACTION   27
+#define SYS_KILL        37
+#define SYS_MMAP        90
+#define SYS_MUNMAP      91
 
 /* Maximum syscall number */
 #define SYS_MAX         100

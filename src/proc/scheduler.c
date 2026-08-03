@@ -1,74 +1,109 @@
 #include <kernel/string.h>
 #include <hal/irq.h>
+#include <hal/smp.h>
+#include <kernel/spinlock.h>
+#include <kernel/percpu.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
 #include <proc/scheduler.h>
 
-static struct process* g_runqueue[MAX_PROCESSES];
-static size_t g_runqueue_count;
-static size_t g_next_index;
+struct cpu_runqueue {
+    spinlock_t lock;
+    struct process* processes[MAX_PROCESSES];
+    size_t count;
+    size_t next;
+    uintptr_t idle_stack;
+};
+static struct cpu_runqueue g_runqueues[MAX_CPUS];
+static spinlock_t g_balance_lock;
 
 #ifndef TACH_HOST_TEST
 extern void task_switch(uintptr_t* old_stack, uintptr_t* new_stack);
 #endif
 
 void scheduler_init(void) {
-    memset(g_runqueue, 0, sizeof(g_runqueue));
-    g_runqueue_count = 0;
-    g_next_index = 0;
+    memset(g_runqueues, 0, sizeof(g_runqueues));
+    spinlock_init(&g_balance_lock);
+    for (size_t cpu = 0; cpu < MAX_CPUS; cpu++)
+        spinlock_init(&g_runqueues[cpu].lock);
     process_init();
 }
 
+void scheduler_init_cpu(uint32_t cpu_id) {
+    if (cpu_id >= MAX_CPUS) return;
+    process_set_current(NULL);
+}
+
 void scheduler_add(struct process* proc) {
-    if (!proc) return;
-    irq_flags_t flags = hal_irq_save();
-    for (size_t i = 0; i < g_runqueue_count; i++) {
-        if (g_runqueue[i] == proc) {
-            hal_irq_restore(flags);
+    if (!proc || proc->queued) return;
+    uint32_t target = 0;
+    size_t lightest = (size_t)-1;
+    spinlock_lock(&g_balance_lock);
+    int cpus = hal_smp_cpu_count();
+    for (int cpu = 0; cpu < cpus; cpu++) {
+        if (g_runqueues[cpu].count < lightest) {
+            target = (uint32_t)cpu;
+            lightest = g_runqueues[cpu].count;
+        }
+    }
+    struct cpu_runqueue* queue = &g_runqueues[target];
+    spinlock_lock(&queue->lock);
+    for (size_t i = 0; i < queue->count; i++) {
+        if (queue->processes[i] == proc) {
+            spinlock_unlock(&queue->lock);
+            spinlock_unlock(&g_balance_lock);
             return;
         }
     }
-    if (g_runqueue_count < MAX_PROCESSES) {
-        g_runqueue[g_runqueue_count++] = proc;
+    if (queue->count < MAX_PROCESSES) {
+        queue->processes[queue->count++] = proc;
+        proc->cpu_id = target;
+        proc->queued = true;
     }
-    hal_irq_restore(flags);
+    spinlock_unlock(&queue->lock);
+    spinlock_unlock(&g_balance_lock);
 }
 
 void scheduler_remove(struct process* proc) {
-    irq_flags_t flags = hal_irq_save();
-    for (size_t i = 0; i < g_runqueue_count; i++) {
-        if (g_runqueue[i] != proc) continue;
-        for (size_t j = i + 1; j < g_runqueue_count; j++) {
-            g_runqueue[j - 1] = g_runqueue[j];
+    uint32_t cpu = proc && proc->cpu_id < MAX_CPUS ? proc->cpu_id : 0;
+    struct cpu_runqueue* queue = &g_runqueues[cpu];
+    spinlock_lock(&queue->lock);
+    for (size_t i = 0; i < queue->count; i++) {
+        if (queue->processes[i] != proc) continue;
+        for (size_t j = i + 1; j < queue->count; j++) {
+            queue->processes[j - 1] = queue->processes[j];
         }
-        g_runqueue[--g_runqueue_count] = NULL;
-        if (g_next_index >= g_runqueue_count) g_next_index = 0;
-        hal_irq_restore(flags);
+        queue->processes[--queue->count] = NULL;
+        proc->queued = false;
+        if (queue->next >= queue->count) queue->next = 0;
+        spinlock_unlock(&queue->lock);
         return;
     }
-    hal_irq_restore(flags);
+    spinlock_unlock(&queue->lock);
 }
 
 struct process* scheduler_pick_next(void) {
-    irq_flags_t flags = hal_irq_save();
-    if (!g_runqueue_count) {
-        hal_irq_restore(flags);
+    struct cpu_runqueue* queue = &g_runqueues[hal_smp_current_cpu()];
+    spinlock_lock(&queue->lock);
+    if (!queue->count) {
+        spinlock_unlock(&queue->lock);
         return NULL;
     }
-    for (size_t checked = 0; checked < g_runqueue_count; checked++) {
-        struct process* proc = g_runqueue[g_next_index++];
-        if (g_next_index >= g_runqueue_count) g_next_index = 0;
-        if (proc && proc->state == PROCESS_STATE_RUNNING) {
-            hal_irq_restore(flags);
+    for (size_t checked = 0; checked < queue->count; checked++) {
+        struct process* proc = queue->processes[queue->next++];
+        if (queue->next >= queue->count) queue->next = 0;
+        if (proc && proc->state == PROCESS_STATE_RUNNING && !proc->on_cpu) {
+            spinlock_unlock(&queue->lock);
             return proc;
         }
     }
-    hal_irq_restore(flags);
+    spinlock_unlock(&queue->lock);
     return NULL;
 }
 
 void scheduler_context_switch(struct process* from, struct process* to) {
     if (!to || to == from) return;
+    if (from) from->on_cpu = false;
     process_set_current(to);
 #ifndef TACH_HOST_TEST
     vmm_switch_context(to->mm);
@@ -76,20 +111,34 @@ void scheduler_context_switch(struct process* from, struct process* to) {
         arch_set_kernel_stack((uintptr_t)to->stack +
                               to->stack_pages * PAGE_SIZE);
     }
-    if (from) {
-        task_switch(&from->saved_stack, &to->saved_stack);
-    }
+    uintptr_t* old_stack = from ? &from->saved_stack :
+        &g_runqueues[hal_smp_current_cpu()].idle_stack;
+    task_switch(old_stack, &to->saved_stack);
 #else
     (void)from;
+#endif
+}
+
+static void scheduler_switch_to_idle(struct process* from) {
+    if (!from) return;
+    uint32_t cpu = hal_smp_current_cpu();
+    from->on_cpu = false;
+    process_set_current(NULL);
+#ifndef TACH_HOST_TEST
+    vmm_switch_context(vmm_kernel_context());
+    task_switch(&from->saved_stack, &g_runqueues[cpu].idle_stack);
+#else
+    (void)cpu;
 #endif
 }
 
 void scheduler_yield(void) {
     struct process* from = process_get_current();
     struct process* to = scheduler_pick_next();
-    if (to == from && g_runqueue_count > 1) {
-        struct process* alternative = scheduler_pick_next();
-        if (alternative) to = alternative;
+    if (!to) {
+        if (from && from->state != PROCESS_STATE_RUNNING)
+            scheduler_switch_to_idle(from);
+        return;
     }
     if (to && to != from) scheduler_context_switch(from, to);
 }

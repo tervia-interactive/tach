@@ -44,6 +44,28 @@ jobs:
     - name: Create ISO for ${{ matrix.arch }}
       run: make iso ARCH=${{ matrix.arch }} CROSS_COMPILE=
 
+    - name: SMP and userspace boot smoke test
+      shell: bash
+      run: |
+        set +e
+        if [ "${{ matrix.arch }}" = i686 ]; then
+          qemu=qemu-system-i386
+        else
+          qemu=qemu-system-x86_64
+        fi
+        timeout 12s "$qemu" \
+          -cdrom src/build/${{ matrix.arch }}/tach.iso \
+          -display none -serial stdio -no-reboot -smp 2 -m 256M \
+          > boot.log 2>&1
+        status=$?
+        set -e
+        test "$status" -eq 124
+        grep -F "scheduler: 2 CPU(s)" boot.log
+        grep -F "PID 1 executing /sbin/init in userspace" boot.log
+        grep -F "tach init: PID 1 online" boot.log
+        grep -F "tach userspace shell" boot.log
+        ! grep -F "userspace exited" boot.log
+
     - name: Upload binary
       uses: actions/upload-artifact@v6
       with:

@@ -11,6 +11,7 @@
 static uint8_t g_frames[MOCK_FRAMES][PAGE_SIZE]
     __attribute__((aligned(PAGE_SIZE)));
 static bool g_frame_used[MOCK_FRAMES];
+static uint16_t g_frame_refs[MOCK_FRAMES];
 static uintptr_t g_dummy_root;
 static struct process g_process;
 
@@ -18,15 +19,34 @@ phys_addr_t pmm_alloc_frame(void) {
     for (size_t i = 0; i < MOCK_FRAMES; i++) {
         if (g_frame_used[i]) continue;
         g_frame_used[i] = true;
+        g_frame_refs[i] = 1;
         return (phys_addr_t)(uintptr_t)g_frames[i];
     }
     return 0;
 }
 
+bool pmm_retain_frame(phys_addr_t frame) {
+    for (size_t i = 0; i < MOCK_FRAMES; i++) {
+        if (frame != (phys_addr_t)(uintptr_t)g_frames[i] ||
+            !g_frame_used[i]) continue;
+        g_frame_refs[i]++;
+        return true;
+    }
+    return false;
+}
+
 void pmm_free_frame(phys_addr_t frame) {
     for (size_t i = 0; i < MOCK_FRAMES; i++)
-        if (frame == (phys_addr_t)(uintptr_t)g_frames[i])
+        if (frame == (phys_addr_t)(uintptr_t)g_frames[i] &&
+            g_frame_used[i] && g_frame_refs[i] && --g_frame_refs[i] == 0)
             g_frame_used[i] = false;
+}
+
+size_t pmm_frame_refcount(phys_addr_t frame) {
+    for (size_t i = 0; i < MOCK_FRAMES; i++)
+        if (frame == (phys_addr_t)(uintptr_t)g_frames[i])
+            return g_frame_refs[i];
+    return 0;
 }
 
 int arch_paging_init(void) { return 0; }
@@ -50,9 +70,11 @@ int arch_paging_unmap(void* root, uintptr_t virtual_address) {
 }
 
 struct process* process_get_current(void) { return &g_process; }
+uint32_t hal_smp_current_cpu(void) { return 0; }
 
 int main(void) {
     memset(g_frame_used, 0, sizeof(g_frame_used));
+    memset(g_frame_refs, 0, sizeof(g_frame_refs));
     memset(&g_process, 0, sizeof(g_process));
     vmm_init();
     struct vmm_context* context = vmm_create_context();
@@ -88,9 +110,22 @@ int main(void) {
     CHECK(clone != NULL);
     phys_addr_t original = vmm_resolve(context, (void*)(heap_page + 17));
     phys_addr_t copied = vmm_resolve(clone, (void*)(heap_page + 17));
-    CHECK(original != copied);
-    CHECK(memcmp((void*)(uintptr_t)original, (void*)(uintptr_t)copied,
-                 sizeof(message)) == 0);
+    CHECK(original == copied);
+    CHECK((vmm_get_flags(context, (void*)heap_page) & VMM_COW) != 0);
+    CHECK((vmm_get_flags(context, (void*)heap_page) & VMM_WRITABLE) == 0);
+    CHECK(pmm_frame_refcount(original & ~(phys_addr_t)(PAGE_SIZE - 1)) == 2);
+
+    g_process.mm = clone;
+    const char child_message[] = "child-cow";
+    CHECK(vmm_handle_fault(heap_page + 17, 1) == 0);
+    CHECK(vmm_copy_to_user(clone, (void*)(heap_page + 17), child_message,
+                           sizeof(child_message)) == 0);
+    phys_addr_t separated = vmm_resolve(clone, (void*)(heap_page + 17));
+    CHECK(separated != original);
+    CHECK(memcmp((void*)(uintptr_t)original, message, sizeof(message)) == 0);
+    CHECK(memcmp((void*)(uintptr_t)separated, child_message,
+                 sizeof(child_message)) == 0);
+    g_process.mm = context;
     vmm_destroy_context(clone);
     vmm_destroy_context(context);
     return 0;

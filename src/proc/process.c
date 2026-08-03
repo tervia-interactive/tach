@@ -8,13 +8,17 @@
 #include <proc/wait.h>
 #include <kernel/signal.h>
 #include <fs/vfs.h>
+#include <hal/smp.h>
+#include <kernel/percpu.h>
+#include <kernel/spinlock.h>
 
 #define PROCESS_STACK_PAGES 4
 
 static struct process g_processes[MAX_PROCESSES];
 static bool g_process_used[MAX_PROCESSES];
-static struct process* g_current;
+static struct process* g_current[MAX_CPUS];
 static pid_t g_next_pid;
+static spinlock_t g_process_lock;
 
 #ifndef TACH_HOST_TEST
 static void process_trampoline(void) {
@@ -85,9 +89,10 @@ static int allocate_kernel_stack(struct process* process) {
 #endif
 
 void process_init(void) {
+    spinlock_init(&g_process_lock);
     memset(g_processes, 0, sizeof(g_processes));
     memset(g_process_used, 0, sizeof(g_process_used));
-    g_current = NULL;
+    memset(g_current, 0, sizeof(g_current));
     g_next_pid = 1;
 }
 
@@ -101,15 +106,17 @@ static void process_attach_stdio(struct process* proc) {
 
 struct process* process_create(const char* name) {
     if (!name || !*name) return NULL;
+    spinlock_lock(&g_process_lock);
     for (size_t i = 0; i < MAX_PROCESSES; i++) {
         if (g_process_used[i]) continue;
         struct fd_table* fds = fd_table_create();
-        if (!fds) return NULL;
+        if (!fds) { spinlock_unlock(&g_process_lock); return NULL; }
 
 #ifndef TACH_HOST_TEST
         struct vmm_context* address_space = vmm_create_context();
         if (!address_space) {
             fd_table_destroy(fds);
+            spinlock_unlock(&g_process_lock);
             return NULL;
         }
 #endif
@@ -117,7 +124,8 @@ struct process* process_create(const char* name) {
         memset(proc, 0, sizeof(*proc));
         g_process_used[i] = true;
         proc->pid = g_next_pid++;
-        proc->ppid = g_current ? g_current->pid : 0;
+        struct process* current = process_get_current();
+        proc->ppid = current ? current->pid : 0;
         strncpy(proc->name, name, MAX_PROCESS_NAME - 1);
         proc->state = PROCESS_STATE_STOPPED;
         proc->fds = fds;
@@ -129,13 +137,16 @@ struct process* process_create(const char* name) {
         proc->gid = 0;
         proc->refcount = 1;
         process_attach_stdio(proc);
+        spinlock_unlock(&g_process_lock);
         return proc;
     }
+    spinlock_unlock(&g_process_lock);
     return NULL;
 }
 
 void process_destroy(struct process* proc) {
     if (!proc) return;
+    spinlock_lock(&g_process_lock);
     for (size_t i = 0; i < MAX_PROCESSES; i++) {
         if (&g_processes[i] != proc || !g_process_used[i]) continue;
         scheduler_remove(proc);
@@ -145,28 +156,45 @@ void process_destroy(struct process* proc) {
             pmm_free_pages(proc->stack, proc->stack_pages);
         }
         if (proc->mm) {
-            if (proc == g_current) vmm_switch_context(vmm_kernel_context());
+            if (proc == process_get_current())
+                vmm_switch_context(vmm_kernel_context());
             vmm_destroy_context(proc->mm);
         }
 #endif
-        if (g_current == proc) g_current = NULL;
+        for (size_t cpu = 0; cpu < MAX_CPUS; cpu++)
+            if (g_current[cpu] == proc) g_current[cpu] = NULL;
         memset(proc, 0, sizeof(*proc));
         g_process_used[i] = false;
+        spinlock_unlock(&g_process_lock);
         return;
     }
+    spinlock_unlock(&g_process_lock);
 }
 
 struct process* process_get(pid_t pid) {
+    spinlock_lock(&g_process_lock);
     for (size_t i = 0; i < MAX_PROCESSES; i++) {
         if (g_process_used[i] && g_processes[i].pid == pid) {
-            return &g_processes[i];
+            struct process* result = &g_processes[i];
+            spinlock_unlock(&g_process_lock);
+            return result;
         }
     }
+    spinlock_unlock(&g_process_lock);
     return NULL;
 }
 
-struct process* process_get_current(void) { return g_current; }
-void process_set_current(struct process* proc) { g_current = proc; }
+struct process* process_get_current(void) {
+    return g_current[hal_smp_current_cpu()];
+}
+void process_set_current(struct process* proc) {
+    uint32_t cpu = hal_smp_current_cpu();
+    g_current[cpu] = proc;
+    if (proc) {
+        proc->cpu_id = cpu;
+        proc->on_cpu = true;
+    }
+}
 
 int process_start(struct process* proc, void* entry, void* arg) {
     if (!proc || !entry) return -EINVAL;
@@ -259,10 +287,11 @@ struct process* process_fork(struct process* parent) {
     return child;
 }
 
-int process_exec_image(struct process* process, const void* image, size_t size,
-                       const char* name) {
+int process_exec_image_args(struct process* process, const void* image,
+                            size_t size, const char* name,
+                            const char* const argv[], size_t argc) {
 #ifdef TACH_HOST_TEST
-    (void)process; (void)image; (void)size; (void)name;
+    (void)process; (void)image; (void)size; (void)name; (void)argv; (void)argc;
     return -ENOTSUP;
 #else
     if (!arch_user_supported()) return -ENOTSUP;
@@ -291,15 +320,40 @@ int process_exec_image(struct process* process, const void* image, size_t size,
         vmm_destroy_context(new_context);
         return result;
     }
-    uintptr_t initial_sp = stack_top - 3 * sizeof(uintptr_t);
+    if (argc > 16) {
+        vmm_destroy_context(new_context);
+        return -E2BIG;
+    }
+    uintptr_t argument_addresses[16];
+    uintptr_t cursor = stack_top;
+    for (size_t i = argc; i > 0; i--) {
+        size_t length = strlen(argv[i - 1]) + 1;
+        if (length > 256 || cursor - stack_page < length) {
+            vmm_destroy_context(new_context);
+            return -E2BIG;
+        }
+        cursor -= length;
+        memcpy((void*)((uintptr_t)stack_physical + cursor - stack_page),
+               argv[i - 1], length);
+        argument_addresses[i - 1] = cursor;
+    }
+    cursor &= ~(uintptr_t)0xf;
+    size_t words = argc + 3;
+    uintptr_t initial_sp = (cursor - words * sizeof(uintptr_t)) &
+                           ~(uintptr_t)0xf;
+    if (initial_sp < stack_page) {
+        vmm_destroy_context(new_context);
+        return -E2BIG;
+    }
     uintptr_t* initial = (uintptr_t*)((uintptr_t)stack_physical +
                          (initial_sp - stack_page));
-    initial[0] = 0;
-    initial[1] = 0;
-    initial[2] = 0;
+    initial[0] = argc;
+    for (size_t i = 0; i < argc; i++) initial[i + 1] = argument_addresses[i];
+    initial[argc + 1] = 0;
+    initial[argc + 2] = 0;
 
     struct vmm_context* old_context = process->mm;
-    bool is_current = process == g_current;
+    bool is_current = process == process_get_current();
     process->mm = new_context;
     process->mm->owner = process->pid;
     if (is_current) vmm_switch_context(new_context);
@@ -328,6 +382,14 @@ int process_exec_image(struct process* process, const void* image, size_t size,
     }
     return 0;
 #endif
+}
+
+int process_exec_image(struct process* process, const void* image, size_t size,
+                       const char* name) {
+    const char* argv[1];
+    size_t argc = 0;
+    if (name && *name) { argv[0] = name; argc = 1; }
+    return process_exec_image_args(process, image, size, name, argv, argc);
 }
 
 pid_t process_waitpid(pid_t pid, int* status, int options) {
@@ -365,8 +427,9 @@ void process_terminate(struct process* process, int code) {
 }
 
 void process_exit(int code) {
-    if (!g_current) return;
-    process_terminate(g_current, code);
+    struct process* current = process_get_current();
+    if (!current) return;
+    process_terminate(current, code);
 #ifndef TACH_HOST_TEST
     scheduler_yield();
     for (;;) {}
@@ -374,11 +437,13 @@ void process_exit(int code) {
 }
 
 void process_set_user_context(const struct user_context* context) {
-    if (g_current && context) g_current->user_context = *context;
+    struct process* current = process_get_current();
+    if (current && context) current->user_context = *context;
 }
 
 void process_get_user_context(struct user_context* context) {
-    if (g_current && context) *context = g_current->user_context;
+    struct process* current = process_get_current();
+    if (current && context) *context = current->user_context;
 }
 
 void process_wait(struct process* proc) {
@@ -388,18 +453,26 @@ void process_wait(struct process* proc) {
 
 size_t process_count(void) {
     size_t count = 0;
+    spinlock_lock(&g_process_lock);
     for (size_t i = 0; i < MAX_PROCESSES; i++) {
         if (g_process_used[i]) count++;
     }
+    spinlock_unlock(&g_process_lock);
     return count;
 }
 
 struct process* process_at(size_t index) {
     size_t current = 0;
+    spinlock_lock(&g_process_lock);
     for (size_t i = 0; i < MAX_PROCESSES; i++) {
         if (!g_process_used[i]) continue;
-        if (current++ == index) return &g_processes[i];
+        if (current++ == index) {
+            struct process* result = &g_processes[i];
+            spinlock_unlock(&g_process_lock);
+            return result;
+        }
     }
+    spinlock_unlock(&g_process_lock);
     return NULL;
 }
 

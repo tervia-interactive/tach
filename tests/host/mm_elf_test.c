@@ -79,6 +79,11 @@ static int test_pmm(void) {
     phys_addr_t second = pmm_alloc_frame();
     CHECK(first == 0x100000);
     CHECK(second == 0x101000);
+    CHECK(pmm_frame_refcount(first) == 1);
+    CHECK(pmm_retain_frame(first));
+    CHECK(pmm_frame_refcount(first) == 2);
+    pmm_free_frame(first);
+    CHECK(pmm_frame_refcount(first) == 1);
     pmm_free_frame(first);
     CHECK(pmm_alloc_frame() == first);
     void* contiguous = pmm_alloc_aligned_pages(4, 4);
