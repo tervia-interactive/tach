@@ -11,10 +11,11 @@
 typedef struct {
     atomic_int locked;
     uint32_t cpu_id;
+    uintptr_t irq_flags;
 } spinlock_t;
 
 /* Static initializer */
-#define SPINLOCK_INIT { .locked = 0, .cpu_id = 0 }
+#define SPINLOCK_INIT { .locked = 0, .cpu_id = 0, .irq_flags = 0 }
 
 /* Initialize spinlock */
 void spinlock_init(spinlock_t* lock);

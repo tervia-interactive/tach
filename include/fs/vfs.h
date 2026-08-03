@@ -37,6 +37,8 @@ struct vnode {
     void* data;
     struct vnode_ops* ops;
     size_t refcount;
+    size_t size;
+    char path[128];
 };
 
 struct vnode_ops {
@@ -55,5 +57,7 @@ int vfs_close(struct vnode* vn);
 ssize_t vfs_read(struct vnode* vn, void* buf, size_t count, int64_t offset);
 ssize_t vfs_write(struct vnode* vn, const void* buf, size_t count, int64_t offset);
 struct vnode* vfs_console(void);
+int vfs_register_memfile(const char* path, const void* data, size_t size);
+int vfs_read_file(const char* path, const void** data, size_t* size);
 
 #endif /* _FS_VFS_H */

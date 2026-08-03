@@ -7,6 +7,7 @@
 #include <hal/console.h>
 #include <proc/process.h>
 #include <proc/syscall.h>
+#include <fs/vfs.h>
 #include <mm/pmm.h>
 
 #define SHELL_MAX_ARGS 16
@@ -97,6 +98,7 @@ static void command_help(void) {
         "  syscalls             show active syscall ABI entries\n"
         "  status               show the previous command status\n"
         "  exit [status]        leave the shell\n"
+        "  /path | command      run an ELF from the initrd (/bin searched)\n"
         "\n"
         "Editing: Backspace, Ctrl+U, Ctrl+W, Up/Down history.\n");
 }
@@ -236,7 +238,7 @@ int shell_exec(const char* cmd, int argc, const char** argv) {
         shell_putc('\n');
     } else if (strcmp(cmd, "uname") == 0) {
         if (argc > 1 && strcmp(argv[1], "-a") == 0) {
-            shell_printf("tach tach %s %s embedded-userspace\n",
+            shell_printf("tach %s %s userspace\n",
                          TACH_VERSION_STRING, shell_arch());
         } else {
             shell_printf("tach\n");
@@ -287,6 +289,34 @@ int shell_exec(const char* cmd, int argc, const char** argv) {
         process_exit(status);
         return status;
     } else {
+        char path[128];
+        const char* executable = cmd;
+        if (cmd[0] != '/') {
+            strcpy(path, "/bin/");
+            if (strlen(cmd) + strlen(path) >= sizeof(path)) {
+                shell_printf("%s: name too long\n", cmd);
+                return -ENAMETOOLONG;
+            }
+            strcpy(path + strlen(path), cmd);
+            executable = path;
+        }
+        const void* image;
+        size_t image_size;
+        if (vfs_read_file(executable, &image, &image_size) == 0) {
+            struct process* child = process_create(executable);
+            if (!child) return -ENOMEM;
+            int result = process_exec_image(child, image, image_size,
+                                            executable);
+            if (result < 0) {
+                process_destroy(child);
+                shell_printf("%s: cannot execute (%d)\n", executable,
+                             result);
+                return result;
+            }
+            int status = 0;
+            pid_t waited = process_waitpid(child->pid, &status, 0);
+            return (int32_t)waited < 0 ? (int32_t)waited : status;
+        }
         shell_printf("%s: command not found\n", cmd);
         return -ENOENT;
     }
@@ -298,7 +328,7 @@ void shell_run(shell_t* sh) {
         return;
     }
     g_active_shell = sh;
-    shell_printf("tach interactive shell (%s)\n", TACH_VERSION_STRING);
+    shell_printf("tach (%s)\n", TACH_VERSION_STRING);
     shell_printf("Type 'help' for available commands.\n\n");
 
     char line[TTY_BUFFER_SIZE];

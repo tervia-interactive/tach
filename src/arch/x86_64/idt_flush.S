@@ -5,3 +5,4 @@ idt_flush:
     lidt (%rdi)
     ret
 .size idt_flush, . - idt_flush
+.section .note.GNU-stack,"",@progbits

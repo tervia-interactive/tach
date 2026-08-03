@@ -14,3 +14,4 @@ gdt_flush:
 .Lreload_cs:
     ret
 .size gdt_flush, . - gdt_flush
+.section .note.GNU-stack,"",@progbits

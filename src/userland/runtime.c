@@ -1,5 +1,5 @@
 /*
- * userland/runtime.c - Embedded PID 1 and interactive userspace bootstrap
+ * userland/runtime.c - Embedded PID 1 and shell fallback bootstrap
  * Copyright 2026 Tervia Interactive™
  * Licensed under Apache License 2.0
  */
@@ -47,7 +47,7 @@ int userland_bootstrap(tty_t* tty) {
     }
 
     klog_info("init", "PID 1 started embedded userspace runtime");
-    klog_info("init", "starting interactive shell as PID %u",
+    klog_info("init", "starting shell as PID %u",
               (unsigned)shell->pid);
 
 #ifdef TACH_HOST_TEST

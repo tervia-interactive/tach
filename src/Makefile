@@ -103,6 +103,11 @@ else
 	echo "" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	echo "menuentry \"tach\" {" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	echo "  $(if $(filter $(ARCH),x86_64),multiboot2,multiboot) /boot/tach.bin" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
+ifneq ($(strip $(INITRD)),)
+	@test -f "$(INITRD)" || { echo "ERROR: initrd not found: $(INITRD)"; exit 1; }
+	cp "$(INITRD)" $(BUILD_DIR)/iso/boot/initrd.tar
+	echo "  $(if $(filter $(ARCH),x86_64),module2,module) /boot/initrd.tar" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
+endif
 	echo "  boot" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	echo "}" >> $(BUILD_DIR)/iso/boot/grub/grub.cfg
 	grub-mkrescue -o $(KERNEL_ISO) $(BUILD_DIR)/iso

@@ -9,6 +9,8 @@
 #include <proc/scheduler.h>
 #include <proc/syscall.h>
 #include <ipc/sem.h>
+#include <hal/time.h>
+#include <kernel/signal.h>
 #include <term/tty.h>
 #include <term/vterm.h>
 #include <userland/runtime.h>
@@ -76,6 +78,10 @@ static void dummy_entry(void* arg) {
     (void)arg;
 }
 
+static void dummy_signal_handler(int signal) {
+    (void)signal;
+}
+
 int main(void) {
     vfs_init();
     scheduler_init();
@@ -99,9 +105,9 @@ int main(void) {
     CHECK(process_get(2)->state == PROCESS_STATE_ZOMBIE);
     CHECK(process_get_current() == process_get(1));
 
-    CHECK(contains(g_output, "tach interactive shell"));
+    CHECK(contains(g_output, "tach ("));
     CHECK(contains(g_output, "hello world"));
-    CHECK(contains(g_output, "embedded-userspace"));
+    CHECK(contains(g_output, "userspace"));
     CHECK(contains(g_output, "Pid:\t2"));
     CHECK(contains(g_output, "getpid"));
 
@@ -140,6 +146,44 @@ int main(void) {
     sem_release(&blocking);
     CHECK(worker->state == PROCESS_STATE_RUNNING);
     CHECK(blocking.waiters == 0);
+
+    process_set_current(process_get(1));
+    long child_pid = syscall_dispatch(SYS_FORK, 0, 0, 0, 0, 0, 0);
+    CHECK(child_pid > 0);
+    struct process* child = process_get((pid_t)child_pid);
+    CHECK(child != NULL);
+    CHECK(child->ppid == 1);
+    CHECK(fd_get(child->fds, 1) != NULL);
+    CHECK(syscall_dispatch(SYS_KILL, (uint64_t)child_pid, SIGKILL,
+                           0, 0, 0, 0) == 0);
+    CHECK(child->state == PROCESS_STATE_ZOMBIE);
+    int child_status = 0;
+    CHECK(syscall_dispatch(SYS_WAITPID, (uint64_t)child_pid,
+                           (uint64_t)(uintptr_t)&child_status,
+                           0, 0, 0, 0) == child_pid);
+    CHECK(child_status == 128 + SIGKILL);
+    CHECK(process_get((pid_t)child_pid) == NULL);
+
+    sigaction_t action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = dummy_signal_handler;
+    CHECK(signal_set_action(process_get(1), SIGUSR1, &action, NULL) == 0);
+    CHECK(signal_send(1, SIGUSR1) == 0);
+    uintptr_t signal_stack[8];
+    struct user_context signal_context;
+    memset(&signal_context, 0, sizeof(signal_context));
+    signal_context.pc = 0x1234;
+    signal_context.sp = (uintptr_t)(signal_stack + 8);
+    CHECK(signal_deliver_pending(process_get(1), &signal_context) == SIGUSR1);
+    CHECK(signal_context.pc == (uintptr_t)dummy_signal_handler);
+    CHECK(signal_context.regs[1] == SIGUSR1);
+    CHECK(*(uintptr_t*)signal_context.sp == 0x1234);
+
+    process_set_current(process_get(1));
+    uint64_t before = process_get(1)->runtime_ticks;
+    hal_timer_init();
+    hal_timer_interrupt();
+    CHECK(process_get(1)->runtime_ticks == before + 1);
 
     vterm_t vt;
     vterm_init(&vt);

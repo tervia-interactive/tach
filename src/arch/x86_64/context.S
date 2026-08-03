@@ -6,3 +6,4 @@ task_switch:
     popq %r15; popq %r14; popq %r13; popq %r12; popq %rbp; popq %rbx
     ret
 .size task_switch, . - task_switch
+.section .note.GNU-stack,"",@progbits

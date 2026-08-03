@@ -31,6 +31,7 @@ sudo apt-get install -y \
     nasm \
     xorriso \
     grub-pc-bin \
+    mtools \
     qemu-system-x86 \
     gcc make
 
@@ -60,6 +61,10 @@ make clean
 
 # Run tests
 make test
+
+# Attach a USTAR initrd with /bin ELF programs to an x86 ISO
+tar --format=ustar -cf initrd.tar -C rootfs .
+make iso ARCH=x86_64 INITRD="$PWD/initrd.tar"
 
 # Format code
 make format
@@ -182,32 +187,39 @@ tach/
 - Bitmap physical frame allocator populated from Multiboot memory maps
 - Per-process VMM contexts backed by x86, ARM, AArch64, and RISC-V page tables
 - Page allocation, fixed mappings, unmapping, address-space switching, and cleanup
-- Kernel heap (kmalloc/kfree)
-- Slab allocator
+- PMM-backed `kmalloc`, `kzalloc`, `krealloc`, and `kfree`
+- Fixed-size slab caches layered over the kernel heap
 - W^X enforcement
 
 ### IPC & Synchronization
 - Message ports (XPC-style)
 - Counting semaphores
 - kqueue event notification
-- POSIX-style signals
+- POSIX-style signal actions, pending delivery, fatal defaults, and `SIGCHLD`
 
 ### Userspace Foundation
 - Static process table with PID/PPID, lifecycle state, credentials, and accounting
-- Cooperative round-robin run queue with real architecture context switches
+- 100 Hz preemptive round-robin scheduling driven by PIT, ARM generic timer,
+  and RISC-V timer interrupts
 - Per-process file descriptor tables with inherited console standard streams
-- Stable syscall dispatcher with `exit`, `read`, `write`, `open`, `close`, and `getpid`
-- Embedded PID 1 runtime that launches an interactive `sh`
+- Syscalls for I/O plus `fork`, `execve`, `waitpid`, `kill`, `sigaction`,
+  `brk`, `mmap`, and `munmap`
+- Eager address-space cloning for `fork` and blocking zombie reaping
+- Embedded PID 1 runtime that launches `sh`
 - `/dev/console` and `/dev/tty` through the VFS character-device interface
 - Interactive EN-US shell with quoting, command status, history, and line editing
 - Serial and PS/2 keyboard input with mirrored serial/VGA output
 - ELF32/ELF64 executable validation and `PT_LOAD` segment mapping
+- USTAR initrd import and external ELF execution from the shell (`/bin` searched)
+- x86 and x86_64 ring-3 entry through per-process TSS kernel stacks,
+  DPL3 `int 0x80`, and `iret`/`iretq`
+- Demand-grown user stacks and heap pages; invalid user faults become `SIGSEGV`
 - FIFO semaphores that block and wake processes through the scheduler
 
-The embedded PID 1 and shell remain the default boot payload. Processes now have
-separate page-table roots and the ELF loader can populate them, but user-mode
-privilege transitions and a filesystem-backed `/sbin/init` are still future
-work; ELF entry points currently execute at kernel privilege.
+The embedded PID 1 and shell remain the default boot payload. On x86 targets,
+ELF processes loaded from an initrd execute in ring 3 and enter the kernel with
+`int 0x80`. ARM/AArch64 and RISC-V have timer-driven preemption and isolated page
+tables, but their EL0/U-mode syscall entry is still future architecture work.
 
 ### Hardware Support
 - VGA text mode console

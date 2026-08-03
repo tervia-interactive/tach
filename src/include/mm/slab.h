@@ -13,6 +13,8 @@ struct slab_cache {
     size_t object_size;
     size_t objects_per_slab;
     void* slabs;
+    void* partial;
+    size_t allocation_count;
 };
 
 void slab_init(void);

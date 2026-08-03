@@ -5,8 +5,8 @@
 .globl _start
 
 _start:
-    # Disable interrupts
-    csrci mstatus, 0x8
+    # OpenSBI enters the kernel in supervisor mode.
+    csrci sstatus, 0x2
     
     # Set trap vector (stvec for supervisor mode)
     la t0, trap_vector

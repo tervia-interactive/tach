@@ -9,10 +9,9 @@
 #include <term/tty.h>
 
 /*
- * Starts PID 1 and the interactive shell using the stable syscall/VFS
- * interfaces. The current runtime is embedded in the kernel image; the
- * process and ABI boundary is intentionally ready for a later ring-3 ELF
- * transition once per-process page tables are available.
+ * Starts the embedded fallback PID 1 and shell through the syscall/VFS
+ * interfaces. External ELF programs may replace this path when supplied
+ * by an initrd.
  */
 int userland_bootstrap(tty_t* tty);
 

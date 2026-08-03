@@ -9,6 +9,13 @@ on:
     types: [ created ]
 
 jobs:
+  test-host:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v6
+    - name: Run host subsystem tests
+      run: make test
+
   build-x86:
     runs-on: ubuntu-22.04
     strategy:

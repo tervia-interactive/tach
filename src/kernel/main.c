@@ -18,9 +18,13 @@
 #include <hal/cpu.h>
 #include <hal/smp.h>
 #include <hal/mm.h>
+#include <hal/irq.h>
+#include <hal/time.h>
 #include <boot/multiboot.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include <mm/kheap.h>
+#include <mm/slab.h>
 #include <proc/scheduler.h>
 #include <proc/syscall.h>
 #include <hw/pci.h>
@@ -30,6 +34,7 @@
 #include <fs/tmpfs.h>
 #include <fs/devfs.h>
 #include <fs/procfs.h>
+#include <fs/initrd.h>
 #include <drivers/block/ahci.h>
 #include <term/tty.h>
 #include <term/vterm.h>
@@ -51,8 +56,10 @@ extern int pci_scan(void (*callback)(uint32_t));
  * triple-faulting the CPU (with no IDT loaded at all, *any* fault has
  * nowhere to go: fault -> double fault -> also nowhere to go -> triple
  * fault -> CPU resets, with nothing ever printed). */
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
 extern void idt_init(void);
+extern void gdt_init(void);
+extern void irq_install(void);
 #endif
 
 static spinlock_t g_boot_spinlock;
@@ -65,8 +72,10 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     hal_console_early_init();
     klog_init();
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
+    gdt_init();
     idt_init();
+    irq_install();
 #endif
 
     klog_info("kernel", "idt: 32 exception handlers installed");
@@ -105,6 +114,8 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     klog_info("mm", "vmm: initializing kernel address space");
     vmm_init();
     klog_info("mm", "vmm: kernel page tables ready");
+    kheap_init(NULL, 0);
+    slab_init();
     klog_info("mm", "kheap: kmalloc/kfree interface online");
 
     klog_info("sync", "initializing spinlock/mutex/rwlock primitives");
@@ -123,7 +134,10 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
 
     klog_info("proc", "scheduler: initializing run queues");
     scheduler_init();
-    klog_info("proc", "scheduler: round-robin run queue ready (cooperative)");
+    arch_user_init();
+    hal_timer_init();
+    hal_irq_enable();
+    klog_info("proc", "scheduler: 100 Hz preemptive round-robin online");
 
     klog_info("proc", "syscall: installing dispatch table");
     syscall_init();
@@ -143,6 +157,17 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
 
     klog_info("vfs", "registering virtual filesystem switch");
     vfs_init();
+    const void* initrd_address;
+    size_t initrd_size;
+    if (multiboot_get_module(0, &initrd_address, &initrd_size, NULL) == 0) {
+        int files = initrd_parse((void*)initrd_address, initrd_size);
+        if (files >= 0) {
+            klog_info("initrd", "mounted USTAR module (%d files, %u bytes)",
+                      files, (unsigned)initrd_size);
+        } else {
+            klog_warn("initrd", "boot module is not a valid USTAR archive");
+        }
+    }
     klog_info("tmpfs", "registered");
     tmpfs_init();
     klog_info("devfs", "registered, mounting /dev");
@@ -174,7 +199,7 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     klog_info("tach", "system initialized successfully");
     klog_raw("\n");
     int userland_status = userland_bootstrap(&g_tty0);
-    klog_warn("init", "interactive userspace exited with status %d",
+    klog_warn("init", "userspace exited with status %d",
               userland_status);
 
     while (1) {
