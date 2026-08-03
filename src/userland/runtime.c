@@ -9,6 +9,7 @@
 #include <proc/scheduler.h>
 #include <term/shell.h>
 #include <userland/runtime.h>
+#include <fs/vfs.h>
 
 static void init_entry(void* arg) {
     (void)arg;
@@ -26,6 +27,31 @@ int userland_bootstrap(tty_t* tty) {
     if (!tty) {
         return -EINVAL;
     }
+
+    const void* init_image;
+    size_t init_size;
+#ifndef TACH_HOST_TEST
+    if (arch_user_supported() &&
+        vfs_read_file("/sbin/init", &init_image, &init_size) == 0) {
+        struct process* external_init = process_create("init");
+        if (!external_init) return -ENOMEM;
+        int loaded = process_exec_image(external_init, init_image, init_size,
+                                        "/sbin/init");
+        if (loaded < 0) {
+            process_destroy(external_init);
+            klog_err("init", "cannot execute /sbin/init (%d)", loaded);
+            return loaded;
+        }
+        klog_info("init", "PID 1 executing /sbin/init in userspace");
+        while (external_init->state != PROCESS_STATE_ZOMBIE)
+            scheduler_yield();
+        int status = external_init->exit_code;
+        process_destroy(external_init);
+        return status;
+    }
+#else
+    (void)init_image; (void)init_size;
+#endif
 
     struct process* init = process_create("init");
     if (!init) {

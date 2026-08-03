@@ -13,11 +13,14 @@
 #define SCHEDULER_QUANTUM_MS 10
 
 void scheduler_init(void);
+void scheduler_init_cpu(uint32_t cpu_id);
 void scheduler_add(struct process* proc);
 void scheduler_remove(struct process* proc);
 struct process* scheduler_pick_next(void);
 void scheduler_yield(void);
 void scheduler_tick(void);
 void scheduler_context_switch(struct process* from, struct process* to);
+void scheduler_block_current(void* reason);
+void scheduler_wake(struct process* proc);
 
 #endif /* _PROC_SCHEDULER_H */

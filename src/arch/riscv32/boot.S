@@ -8,6 +8,7 @@ _start:
     # OpenSBI enters the kernel in supervisor mode. Keep S-mode IRQs
     # masked until the HAL has installed the timer handler.
     csrci sstatus, 0x2
+    mv tp, a0
     
     # Set trap vector
     la t0, trap_vector

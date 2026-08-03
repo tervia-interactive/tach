@@ -47,6 +47,9 @@ struct process {
     size_t refcount;
     void* entry_arg;
     uint64_t runtime_ticks;
+    uint32_t cpu_id;
+    bool on_cpu;
+    bool queued;
     uintptr_t saved_stack;
     size_t stack_pages;
     void* block_reason;
@@ -74,6 +77,9 @@ int process_start_user(struct process* proc, void* entry, uintptr_t stack_top);
 struct process* process_fork(struct process* parent);
 int process_exec_image(struct process* proc, const void* image, size_t size,
                        const char* name);
+int process_exec_image_args(struct process* proc, const void* image, size_t size,
+                            const char* name, const char* const argv[],
+                            size_t argc);
 pid_t process_waitpid(pid_t pid, int* status, int options);
 void process_exit(int code);
 void process_terminate(struct process* proc, int code);

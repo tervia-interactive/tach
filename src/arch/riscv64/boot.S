@@ -7,6 +7,7 @@
 _start:
     # OpenSBI enters the kernel in supervisor mode.
     csrci sstatus, 0x2
+    mv tp, a0
     
     # Set trap vector (stvec for supervisor mode)
     la t0, trap_vector

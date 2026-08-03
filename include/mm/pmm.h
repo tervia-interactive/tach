@@ -14,7 +14,9 @@
 
 void pmm_init(const mem_region_t* memory_map, size_t region_count);
 phys_addr_t pmm_alloc_frame(void);
+bool pmm_retain_frame(phys_addr_t frame);
 void pmm_free_frame(phys_addr_t frame);
+size_t pmm_frame_refcount(phys_addr_t frame);
 void* pmm_alloc_page(void);
 void pmm_free_page(void* page);
 void* pmm_alloc_pages(size_t count);

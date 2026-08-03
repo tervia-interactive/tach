@@ -29,6 +29,8 @@ void irq_install(void) {
 void x86_irq_handler(uint64_t irq) {
     if (irq >= 8) outb(0xa0, 0x20);
     outb(0x20, 0x20);
+    extern void x86_lapic_eoi(void);
+    x86_lapic_eoi();
     hal_irq_dispatch((int)irq);
 }
 

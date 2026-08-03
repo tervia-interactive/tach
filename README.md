@@ -62,9 +62,14 @@ make clean
 # Run tests
 make test
 
-# Attach a USTAR initrd with /bin ELF programs to an x86 ISO
-tar --format=ustar -cf initrd.tar -C rootfs .
-make iso ARCH=x86_64 INITRD="$PWD/initrd.tar"
+# Build crt0, libc, /sbin/init, /bin/sh and their USTAR initrd
+make userland ARCH=x86_64
+
+# Build an x86 ISO. The userspace initrd is generated and attached by default.
+make iso ARCH=x86_64
+
+# A custom USTAR image may still override the default payload.
+make iso ARCH=x86_64 INITRD="$PWD/custom-initrd.tar"
 
 # Format code
 make format
@@ -161,11 +166,11 @@ tach/
 │   ├── kernel/            # Kernel-level tests
 │   └── userland/          # Userland tests
 │
-├── userland/              # User-space components
-│   ├── lib/               # Libraries (libc, frameworks)
-│   ├── daemons/           # System daemons
-│   ├── init/              # Init system
-│   └── bin/               # Command-line tools
+├── user/                  # Freestanding ring-3 programs
+│   ├── crt/               # Architecture-specific _start
+│   ├── libc/              # Minimal syscall libc and brk allocator
+│   ├── init.c             # PID 1 supervisor
+│   └── sh.c               # Userspace shell
 │
 └── .github/workflows/     # GitHub Actions CI/CD
     └── build.yml          # Automated builds
@@ -185,6 +190,7 @@ tach/
 
 ### Memory Management
 - Bitmap physical frame allocator populated from Multiboot memory maps
+- Reference-counted physical frames and copy-on-write `fork`
 - Per-process VMM contexts backed by x86, ARM, AArch64, and RISC-V page tables
 - Page allocation, fixed mappings, unmapping, address-space switching, and cleanup
 - PMM-backed `kmalloc`, `kzalloc`, `krealloc`, and `kfree`
@@ -204,8 +210,12 @@ tach/
 - Per-process file descriptor tables with inherited console standard streams
 - Syscalls for I/O plus `fork`, `execve`, `waitpid`, `kill`, `sigaction`,
   `brk`, `mmap`, and `munmap`
-- Eager address-space cloning for `fork` and blocking zombie reaping
-- Embedded PID 1 runtime that launches `sh`
+- Read-only shared fork mappings with first-write page-fault separation
+- Freestanding `_start`/crt0 and a minimal libc with syscall wrappers,
+  string routines, and a `brk`-backed allocator
+- External `/sbin/init` as PID 1, using `fork`, `execve`, and `waitpid` to
+  supervise the ring-3 `/bin/sh`
+- Embedded init/shell retained only as a no-initrd fallback
 - `/dev/console` and `/dev/tty` through the VFS character-device interface
 - Interactive EN-US shell with quoting, command status, history, and line editing
 - Serial and PS/2 keyboard input with mirrored serial/VGA output
@@ -216,10 +226,10 @@ tach/
 - Demand-grown user stacks and heap pages; invalid user faults become `SIGSEGV`
 - FIFO semaphores that block and wake processes through the scheduler
 
-The embedded PID 1 and shell remain the default boot payload. On x86 targets,
-ELF processes loaded from an initrd execute in ring 3 and enter the kernel with
-`int 0x80`. ARM/AArch64 and RISC-V have timer-driven preemption and isolated page
-tables, but their EL0/U-mode syscall entry is still future architecture work.
+On x86 targets, `make iso` builds and attaches the real userspace payload by
+default. Its ELF processes execute in ring 3 and enter the kernel with `int 0x80`.
+ARM/AArch64 and RISC-V have timer-driven SMP scheduling and isolated page tables,
+but their EL0/U-mode syscall entry is still future architecture work.
 
 ### Hardware Support
 - VGA text mode console
@@ -228,6 +238,8 @@ tables, but their EL0/U-mode syscall entry is still future architecture work.
 - ATA/AHCI storage
 - USB (planned)
 - ACPI (x86) / Device Tree (ARM/RISC-V)
+- SMP startup through x86 INIT/SIPI, ARM PSCI CPU_ON, and RISC-V SBI HSM
+- Per-CPU scheduler queues, current-process state, TSS state, and timer setup
 
 ## CI/CD
 

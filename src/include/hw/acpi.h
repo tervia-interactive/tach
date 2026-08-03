@@ -14,6 +14,10 @@ struct acpi_rsdp {
     char oem_id[6];
     uint8_t revision;
     uint32_t rsdt_address;
+    uint32_t length;
+    uint64_t xsdt_address;
+    uint8_t extended_checksum;
+    uint8_t reserved[3];
 } __attribute__((packed));
 
 struct acpi_sdt_header {
@@ -46,5 +50,7 @@ struct acpi_madt_entry {
 void acpi_init(void);
 struct acpi_sdt_header* acpi_find_table(const char* signature);
 void* acpi_get_rsdp(void);
+size_t acpi_cpu_count(void);
+uint32_t acpi_cpu_apic_id(size_t index);
 
 #endif /* _HW_ACPI_H */

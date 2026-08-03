@@ -7,6 +7,7 @@
 #define PMM_BITMAP_BYTES (PMM_MAX_FRAMES / 8)
 
 static uint8_t g_frame_bitmap[PMM_BITMAP_BYTES];
+static uint16_t g_frame_refs[PMM_MAX_FRAMES];
 static size_t g_frame_limit;
 static size_t g_total_pages;
 static size_t g_free_pages;
@@ -30,6 +31,7 @@ static void frame_set_used(size_t frame) {
             g_free_pages--;
         }
     }
+    if (!g_frame_refs[frame]) g_frame_refs[frame] = 1;
 }
 
 static void frame_set_free(size_t frame) {
@@ -38,6 +40,7 @@ static void frame_set_free(size_t frame) {
         g_frame_bitmap[frame >> 3] &= (uint8_t)~mask;
         g_free_pages++;
     }
+    g_frame_refs[frame] = 0;
 }
 
 static size_t region_first_frame(uint64_t start) {
@@ -81,6 +84,7 @@ void pmm_mark_region_used(phys_addr_t start, size_t size) {
 void pmm_init(const mem_region_t* memory_map, size_t region_count) {
     spinlock_init(&g_pmm_lock);
     memset(g_frame_bitmap, 0xff, sizeof(g_frame_bitmap));
+    memset(g_frame_refs, 0, sizeof(g_frame_refs));
     g_frame_limit = 0;
     g_total_pages = 0;
     g_free_pages = 0;
@@ -114,6 +118,12 @@ void pmm_init(const mem_region_t* memory_map, size_t region_count) {
     }
 
     pmm_mark_region_used(0, PAGE_SIZE);
+#if !defined(TACH_HOST_TEST) && (defined(__x86_64__) || defined(__i386__))
+    /* INIT/SIPI starts APs in real mode at vector 0x08.  Keep the physical
+     * trampoline page out of the allocator before paging, heap, or process
+     * setup has a chance to reuse and later corrupt it. */
+    pmm_mark_region_used(0x8000u, PAGE_SIZE);
+#endif
 #ifndef TACH_HOST_TEST
     pmm_mark_region_used((phys_addr_t)(uintptr_t)__kernel_start,
                          (size_t)(__kernel_end - __kernel_start));
@@ -129,6 +139,7 @@ phys_addr_t pmm_alloc_frame(void) {
         for (size_t frame = begin; frame < end; frame++) {
             if (!frame_is_used(frame)) {
                 frame_set_used(frame);
+                g_frame_refs[frame] = 1;
                 g_search_start = frame + 1;
                 spinlock_unlock(&g_pmm_lock);
                 return (phys_addr_t)(frame << PAGE_SHIFT);
@@ -137,6 +148,18 @@ phys_addr_t pmm_alloc_frame(void) {
     }
     spinlock_unlock(&g_pmm_lock);
     return 0;
+}
+
+bool pmm_retain_frame(phys_addr_t frame_address) {
+    if (!frame_address || (frame_address & (PAGE_SIZE - 1))) return false;
+    size_t frame = (size_t)(frame_address >> PAGE_SHIFT);
+    if (frame >= g_frame_limit) return false;
+    spinlock_lock(&g_pmm_lock);
+    bool retained = frame_is_used(frame) && g_frame_refs[frame] &&
+                    g_frame_refs[frame] != 0xffffu;
+    if (retained) g_frame_refs[frame]++;
+    spinlock_unlock(&g_pmm_lock);
+    return retained;
 }
 
 void pmm_free_frame(phys_addr_t frame_address) {
@@ -148,11 +171,23 @@ void pmm_free_frame(phys_addr_t frame_address) {
         return;
     }
     spinlock_lock(&g_pmm_lock);
-    frame_set_free(frame);
-    if (frame < g_search_start) {
-        g_search_start = frame;
+    if (frame_is_used(frame) && g_frame_refs[frame]) {
+        if (--g_frame_refs[frame] == 0) {
+            frame_set_free(frame);
+            if (frame < g_search_start) g_search_start = frame;
+        }
     }
     spinlock_unlock(&g_pmm_lock);
+}
+
+size_t pmm_frame_refcount(phys_addr_t frame_address) {
+    if (!frame_address || (frame_address & (PAGE_SIZE - 1))) return 0;
+    size_t frame = (size_t)(frame_address >> PAGE_SHIFT);
+    if (frame >= g_frame_limit) return 0;
+    spinlock_lock(&g_pmm_lock);
+    size_t refs = g_frame_refs[frame];
+    spinlock_unlock(&g_pmm_lock);
+    return refs;
 }
 
 void* pmm_alloc_page(void) {
@@ -181,6 +216,7 @@ void* pmm_alloc_aligned_pages(size_t count, size_t alignment_pages) {
             if (++run == count) {
                 for (size_t i = 0; i < count; i++) {
                     frame_set_used(first + i);
+                    g_frame_refs[first + i] = 1;
                 }
                 g_search_start = first + count;
                 spinlock_unlock(&g_pmm_lock);

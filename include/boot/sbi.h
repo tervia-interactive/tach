@@ -22,6 +22,10 @@
 #define SBI_EXT_ID_RFENCE 0x52464E43
 #define SBI_FID_RFENCE_REMOTE_FENCE_I 0
 #define SBI_FID_RFENCE_SFENCE_VMA 1
+#define SBI_EXT_ID_HSM 0x48534D
+#define SBI_FID_HSM_HART_START 0
+#define SBI_FID_HSM_HART_STOP 1
+#define SBI_FID_HSM_HART_GET_STATUS 2
 
 struct sbi_return {
     long error;
@@ -38,5 +42,8 @@ struct sbi_call {
     long extension_id;
     long function_id;
 };
+
+struct sbi_return sbi_ecall(long eid, long fid, long a0, long a1, long a2,
+                            long a3, long a4, long a5);
 
 #endif /* _BOOT_SBI_H */

@@ -177,7 +177,7 @@ static long sys_fork(uint64_t unused1, uint64_t unused2, uint64_t unused3,
 
 static long sys_execve(uint64_t path, uint64_t argv, uint64_t envp,
                        uint64_t unused4, uint64_t unused5, uint64_t unused6) {
-    (void)argv; (void)envp; (void)unused4; (void)unused5; (void)unused6;
+    (void)envp; (void)unused4; (void)unused5; (void)unused6;
     if (!path) return -EFAULT;
     struct process* process = process_get_current();
     char local_path[256];
@@ -188,7 +188,27 @@ static long sys_execve(uint64_t path, uint64_t argv, uint64_t envp,
     size_t size;
     int result = vfs_read_file(local_path, &image, &size);
     if (result < 0) return result;
-    return process_exec_image(process, image, size, local_path);
+    char argument_storage[16][128];
+    const char* arguments[16];
+    size_t argc = 0;
+    if (argv) {
+        for (; argc < 16; argc++) {
+            uintptr_t user_argument = 0;
+            result = copy_from_caller(process, &user_argument,
+                (const void*)((uintptr_t)argv + argc * sizeof(uintptr_t)),
+                sizeof(user_argument));
+            if (result < 0) return result;
+            if (!user_argument) break;
+            result = copy_path_from_caller(process, argument_storage[argc],
+                sizeof(argument_storage[argc]),
+                (const char*)user_argument);
+            if (result < 0) return result;
+            arguments[argc] = argument_storage[argc];
+        }
+        if (argc == 16) return -E2BIG;
+    }
+    return process_exec_image_args(process, image, size, local_path,
+                                   arguments, argc);
 }
 
 static long sys_waitpid(uint64_t pid, uint64_t status, uint64_t options,
