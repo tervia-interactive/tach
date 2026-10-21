@@ -12,6 +12,7 @@ static int read_line(char* line, size_t capacity) {
         if ((c == '\b' || c == 127) && length) {
             length--; puts_fd(1, "\b \b"); continue;
         }
+        if (c < ' ' || c > '~') continue;   /* ignore NUL/0xFF/control bytes */
         line[length++] = c;
         (void)write(1, &c, 1);
     }
