@@ -5,6 +5,7 @@
 #include <hw/acpi.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include "../x86_smp_delay.h"
 
 #define LAPIC_BASE 0xfee00000u
 #define AP_TRAMPOLINE 0x8000u
@@ -23,8 +24,17 @@ static uint32_t read_reg(uint32_t reg) { return lapic()[reg / 4]; }
 static void write_reg(uint32_t reg, uint32_t value) {
     lapic()[reg / 4] = value; (void)lapic()[0x20 / 4];
 }
-static void delay(void) {
-    for (volatile uint32_t i = 0; i < 100000u; i++) __asm__ volatile("pause");
+static void icr_wait_idle(void) {
+    for (uint32_t guard = 0; guard < 1000000u; guard++) {
+        if (!(read_reg(0x300) & (1u << 12))) return;
+        __asm__ volatile("pause");
+    }
+}
+static void icr_send(uint32_t apic_id, uint32_t low) {
+    icr_wait_idle();
+    write_reg(0x310, apic_id << 24);
+    write_reg(0x300, low);
+    icr_wait_idle();
 }
 static void enable_lapic(void) {
     uint32_t low, high;
@@ -70,15 +80,19 @@ int arch_smp_boot_secondary(uint32_t cpu, void* entry) {
     PATCH(ap_trampoline_entry, uint32_t, entry);
     PATCH(ap_trampoline_cpu, uint32_t, cpu);
 #undef PATCH
-    write_reg(0x310, g_apic_ids[cpu] << 24); write_reg(0x300, 0xc500); delay();
-    write_reg(0x300, 0x8500); delay();
+    /* INIT, 10 ms, SIPI, 200 us, SIPI with real-time (PIT) delays. */
+    uint32_t apic = g_apic_ids[cpu];
+    icr_send(apic, 0xc500u);
+    x86_delay_us(200);
+    icr_send(apic, 0x8500u);
+    x86_delay_us(10000);
     for (int i = 0; i < 2; i++) {
-        write_reg(0x310, g_apic_ids[cpu] << 24);
-        write_reg(0x300, 0x0608); delay();
+        icr_send(apic, 0x0600u | (AP_TRAMPOLINE >> 12));
+        x86_delay_us(200);
     }
-    for (uint32_t wait = 0; wait < 10000000u; wait++) {
+    for (uint32_t waited = 0; waited < 20000u; waited++) {
         if (hal_smp_cpu_online(cpu)) return 0;
-        __asm__ volatile("pause");
+        x86_delay_us(100);
     }
     return -1;
 }

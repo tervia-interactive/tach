@@ -5,6 +5,7 @@
 #include <hw/acpi.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include "../x86_smp_delay.h"
 
 #define LAPIC_BASE 0xfee00000u
 #define LAPIC_ID 0x020u
@@ -35,9 +36,18 @@ static void lapic_write(uint32_t reg, uint32_t value) {
     lapic()[reg / 4] = value;
     (void)lapic()[LAPIC_ID / 4];
 }
-static void short_delay(void) {
-    for (volatile uint32_t i = 0; i < 100000u; i++)
+/* Wait until the LAPIC has finished sending the previous IPI (ICR bit 12). */
+static void icr_wait_idle(void) {
+    for (uint32_t guard = 0; guard < 1000000u; guard++) {
+        if (!(lapic_read(LAPIC_ICR_LOW) & (1u << 12))) return;
         __asm__ volatile("pause");
+    }
+}
+static void icr_send(uint32_t apic_id, uint32_t low) {
+    icr_wait_idle();
+    lapic_write(LAPIC_ICR_HIGH, apic_id << 24);
+    lapic_write(LAPIC_ICR_LOW, low);
+    icr_wait_idle();
 }
 static uint32_t current_apic_id(void) { return lapic_read(LAPIC_ID) >> 24; }
 static void enable_lapic(void) {
@@ -90,19 +100,22 @@ int arch_smp_boot_secondary(uint32_t cpu_id, void* entry) {
     *(uint32_t*)(destination + ((uint8_t*)&ap_trampoline_cpu -
                   ap_trampoline_start)) = cpu_id;
 
-    lapic_write(LAPIC_ICR_HIGH, g_apic_ids[cpu_id] << 24);
-    lapic_write(LAPIC_ICR_LOW, 0x0000c500u);
-    short_delay();
-    lapic_write(LAPIC_ICR_LOW, 0x00008500u);
-    short_delay();
+    /* Universal startup algorithm: INIT, 10 ms, SIPI, 200 us, SIPI. All
+     * delays are real time (PIT), so slow or oversubscribed VMs behave the
+     * same as bare metal. */
+    uint32_t apic = g_apic_ids[cpu_id];
+    icr_send(apic, 0x0000c500u);            /* INIT, level assert */
+    x86_delay_us(200);
+    icr_send(apic, 0x00008500u);            /* INIT, level de-assert */
+    x86_delay_us(10000);
     for (int attempt = 0; attempt < 2; attempt++) {
-        lapic_write(LAPIC_ICR_HIGH, g_apic_ids[cpu_id] << 24);
-        lapic_write(LAPIC_ICR_LOW, 0x00000608u);
-        short_delay();
+        icr_send(apic, 0x00000600u | (AP_TRAMPOLINE >> 12)); /* SIPI */
+        x86_delay_us(200);
     }
-    for (uint32_t wait = 0; wait < 10000000u; wait++) {
+    /* Give the AP up to ~2 s of real time to report in. */
+    for (uint32_t waited = 0; waited < 20000u; waited++) {
         if (hal_smp_cpu_online(cpu_id)) return 0;
-        __asm__ volatile("pause");
+        x86_delay_us(100);
     }
     return -1;
 }
