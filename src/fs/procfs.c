@@ -4,9 +4,9 @@
  * Alimenta os comandos do shell de userspace (ps, uname -a, syscalls,
  * cat /proc/...), que antes liam estruturas do kernel diretamente.
  *
- * Um read em offset 0 regenera o texto num buffer por arquivo; reads
- * seguintes (offset > 0) fatiam esse mesmo snapshot, entao um arquivo lido
- * em varios pedacos (sys_read le de 256 em 256 bytes) fica consistente.
+ * Um read em offset 0 regenera o texto num snapshot; reads seguintes
+ * (offset > 0) fatiam esse mesmo snapshot, entao um arquivo lido em varios
+ * pedacos (sys_read le de 256 em 256 bytes) fica consistente.
  */
 #include <kernel/errno.h>
 #include <kernel/printf.h>
@@ -108,8 +108,12 @@ static const struct {
     {"/proc/syscalls", gen_syscalls},
 };
 
-static char g_data[PROCFS_FILE_COUNT][PROCFS_BUFFER_SIZE];
-static size_t g_length[PROCFS_FILE_COUNT];
+/* Um unico snapshot compartilhado (protegido por g_procfs_lock). Mantemos o
+ * .bss do kernel pequeno de proposito: a imagem do kernel nao pode avancar
+ * sobre 0x400000, onde o userspace e carregado (ver user/user.ld). */
+static char g_data[PROCFS_BUFFER_SIZE];
+static size_t g_length;
+static size_t g_owner = (size_t)-1; /* arquivo dono do snapshot atual */
 static struct vnode g_vnodes[PROCFS_FILE_COUNT];
 
 static int procfs_open(struct vnode* vn, int flags) {
@@ -129,18 +133,19 @@ static ssize_t procfs_read(struct vnode* vn, void* buf, size_t count,
     size_t index = (size_t)(vn - g_vnodes);
 
     spinlock_lock(&g_procfs_lock);
-    if (offset == 0) {
-        g_out = g_data[index];
+    if (offset == 0 || g_owner != index) {
+        g_out = g_data;
         g_out_length = 0;
         g_table[index].generate();
-        g_data[index][g_out_length] = '\0';
-        g_length[index] = g_out_length;
+        g_data[g_out_length] = '\0';
+        g_length = g_out_length;
+        g_owner = index;
     }
     ssize_t result = 0;
-    if ((size_t)offset < g_length[index]) {
-        size_t available = g_length[index] - (size_t)offset;
+    if ((size_t)offset < g_length) {
+        size_t available = g_length - (size_t)offset;
         if (count > available) count = available;
-        memcpy(buf, g_data[index] + (size_t)offset, count);
+        memcpy(buf, g_data + (size_t)offset, count);
         result = (ssize_t)count;
     }
     spinlock_unlock(&g_procfs_lock);
