@@ -33,6 +33,9 @@ size_t pmm_get_free_pages(void) { return 768; }
 
 void hal_console_early_init(void) {}
 
+void hal_console_lock(void) {}
+void hal_console_unlock(void) {}
+
 void hal_console_putchar(char c) {
     if (g_output_pos + 1 < sizeof(g_output)) {
         g_output[g_output_pos++] = c;

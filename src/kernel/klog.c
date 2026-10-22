@@ -25,13 +25,16 @@ static void emit_timestamp(void) {
 }
 
 void klog_raw(const char* fmt, ...) {
+    hal_console_lock();
     va_list args;
     va_start(args, fmt);
     kvprintf(hal_console_putchar, fmt, args);
     va_end(args);
+    hal_console_unlock();
 }
 
 void klog_info(const char* component, const char* fmt, ...) {
+    hal_console_lock();
     klog_advance(30);
     emit_timestamp();
     kprintf_to(hal_console_putchar, "%s: ", component);
@@ -42,9 +45,11 @@ void klog_info(const char* component, const char* fmt, ...) {
     va_end(args);
 
     hal_console_putchar('\n');
+    hal_console_unlock();
 }
 
 void klog_warn(const char* component, const char* fmt, ...) {
+    hal_console_lock();
     klog_advance(25);
     emit_timestamp();
     kprintf_to(hal_console_putchar, "WARNING: %s: ", component);
@@ -55,9 +60,11 @@ void klog_warn(const char* component, const char* fmt, ...) {
     va_end(args);
 
     hal_console_putchar('\n');
+    hal_console_unlock();
 }
 
 void klog_err(const char* component, const char* fmt, ...) {
+    hal_console_lock();
     klog_advance(15);
     emit_timestamp();
     kprintf_to(hal_console_putchar, "ERROR: %s: ", component);
@@ -68,4 +75,5 @@ void klog_err(const char* component, const char* fmt, ...) {
     va_end(args);
 
     hal_console_putchar('\n');
+    hal_console_unlock();
 }
