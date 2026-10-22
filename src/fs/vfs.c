@@ -11,6 +11,13 @@ static struct vnode g_console;
 static struct vnode g_memfiles[VFS_MAX_MEMFILES];
 static size_t g_memfile_count;
 
+/* Fallback fraco: binarios sem procfs.c (ex.: host test) veem /proc vazio.
+ * O procfs.c do kernel define a versao forte. */
+__attribute__((weak)) struct vnode* procfs_lookup(const char* path) {
+    (void)path;
+    return NULL;
+}
+
 static int simple_open(struct vnode* vnode, int flags) {
     (void)vnode; (void)flags;
     return 0;
