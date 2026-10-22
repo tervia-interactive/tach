@@ -11,4 +11,7 @@
 void procfs_init(void);
 struct vnode* procfs_create_process_entry(pid_t pid, const char* name);
 
+/* Vnode de um arquivo /proc gerado sob demanda; NULL se o caminho nao existe. */
+struct vnode* procfs_lookup(const char* path);
+
 #endif /* _FS_PROCFS_H */

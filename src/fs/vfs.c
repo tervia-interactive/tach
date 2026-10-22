@@ -1,6 +1,7 @@
 #include <kernel/errno.h>
 #include <kernel/string.h>
 #include <fs/vfs.h>
+#include <fs/procfs.h>
 #include <hal/console.h>
 
 #define VFS_MAX_MEMFILES 64
@@ -83,7 +84,7 @@ struct vnode* vfs_open(const char* path, int flags) {
     if (strcmp(path, "/") == 0) vnode = &g_root;
     else if (strcmp(path, "/dev/console") == 0 ||
              strcmp(path, "/dev/tty") == 0) vnode = &g_console;
-    else {
+    else if ((vnode = procfs_lookup(path)) == NULL) {
         for (size_t i = 0; i < g_memfile_count; i++) {
             if (strcmp(path, g_memfiles[i].path) == 0) {
                 vnode = &g_memfiles[i];

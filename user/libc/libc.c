@@ -75,6 +75,47 @@ void* malloc(size_t size) {
 }
 void free(void* pointer) { (void)pointer; }
 
+/* Com -O2 o GCC pode gerar chamadas a memcpy/memset/memmove/memcmp mesmo em
+ * codigo freestanding; o atributo impede que estes loops virem chamadas a si
+ * mesmos. */
+#define NO_LOOP_PATTERNS \
+    __attribute__((optimize("no-tree-loop-distribute-patterns")))
+
+NO_LOOP_PATTERNS void* memcpy(void* destination, const void* source,
+                              size_t count) {
+    unsigned char* d = (unsigned char*)destination;
+    const unsigned char* s = (const unsigned char*)source;
+    while (count--) *d++ = *s++;
+    return destination;
+}
+NO_LOOP_PATTERNS void* memmove(void* destination, const void* source,
+                               size_t count) {
+    unsigned char* d = (unsigned char*)destination;
+    const unsigned char* s = (const unsigned char*)source;
+    if (d < s) {
+        while (count--) *d++ = *s++;
+    } else {
+        d += count; s += count;
+        while (count--) *--d = *--s;
+    }
+    return destination;
+}
+NO_LOOP_PATTERNS void* memset(void* destination, int value, size_t count) {
+    unsigned char* d = (unsigned char*)destination;
+    while (count--) *d++ = (unsigned char)value;
+    return destination;
+}
+NO_LOOP_PATTERNS int memcmp(const void* left, const void* right,
+                            size_t count) {
+    const unsigned char* a = (const unsigned char*)left;
+    const unsigned char* b = (const unsigned char*)right;
+    while (count--) {
+        if (*a != *b) return (int)*a - (int)*b;
+        a++; b++;
+    }
+    return 0;
+}
+
 size_t strlen(const char* text) {
     size_t length = 0; while (text && text[length]) length++; return length;
 }

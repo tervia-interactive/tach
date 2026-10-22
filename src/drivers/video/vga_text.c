@@ -97,6 +97,10 @@ static void vga_scroll_up_one_line(void) {
 }
 
 void vga_putc(char c) {
+    if (c == '\f') { /* FF: limpa a tela (usado por `clear` no userspace) */
+        vga_clear();
+        return;
+    }
     if (c == '\n') {
         cursor_x = 0;
         cursor_y++;
