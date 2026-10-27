@@ -16,7 +16,9 @@ static int copy_from_caller(struct process* process, void* destination,
     if (!process || !destination || (!source && size)) return -EFAULT;
     if (process->user_mode) {
         if (size > 0 && !is_valid_user_range(source, size)) return -EFAULT;
-        return vmm_copy_from_user(destination, process->mm, source, size);
+        if (process->mm) {
+            return vmm_copy_from_user(destination, process->mm, source, size);
+        }
     }
     memcpy(destination, source, size);
     return 0;
@@ -27,7 +29,9 @@ static int copy_to_caller(struct process* process, void* destination,
     if (!process || (!destination && size) || !source) return -EFAULT;
     if (process->user_mode) {
         if (size > 0 && !is_valid_user_range(destination, size)) return -EFAULT;
-        return vmm_copy_to_user(process->mm, destination, source, size);
+        if (process->mm) {
+            return vmm_copy_to_user(process->mm, destination, source, size);
+        }
     }
     memcpy(destination, source, size);
     return 0;
@@ -38,8 +42,10 @@ static int copy_path_from_caller(struct process* process, char* destination,
     if (!process || !destination || !capacity || !source) return -EFAULT;
     if (process->user_mode) {
         if (!is_valid_user_range(source, 1)) return -EFAULT;
-        return vmm_copy_string_from_user(destination, capacity,
-                                         process->mm, source);
+        if (process->mm) {
+            return vmm_copy_string_from_user(destination, capacity,
+                                             process->mm, source);
+        }
     }
     if (strlen(source) >= capacity) return -ENAMETOOLONG;
     strcpy(destination, source);
