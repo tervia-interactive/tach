@@ -57,3 +57,34 @@ int is_valid_kernel_range(const void* ptr, size_t size) {
 
     return 1;
 }
+
+#ifdef TACH_HOST_TEST
+#include <kernel/string.h>
+#include <mm/vmm.h>
+
+__attribute__((weak)) int vmm_copy_from_user(void* destination, struct vmm_context* ctx,
+                                             const void* source, size_t size) {
+    (void)ctx;
+    if (!destination || (!source && size)) return -EFAULT;
+    memcpy(destination, source, size);
+    return 0;
+}
+
+__attribute__((weak)) int vmm_copy_to_user(struct vmm_context* ctx, void* destination,
+                                           const void* source, size_t size) {
+    (void)ctx;
+    if ((!destination && size) || !source) return -EFAULT;
+    memcpy(destination, source, size);
+    return 0;
+}
+
+__attribute__((weak)) int vmm_copy_string_from_user(char* destination, size_t capacity,
+                                                    struct vmm_context* ctx,
+                                                    const char* source) {
+    (void)ctx;
+    if (!destination || !capacity || !source) return -EFAULT;
+    if (strlen(source) >= capacity) return -ENAMETOOLONG;
+    strcpy(destination, source);
+    return 0;
+}
+#endif
