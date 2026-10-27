@@ -14,8 +14,11 @@
 #include <mm/vmm.h>
 #include <fs/vfs.h>
 
+#include <stdio.h>
+
 #define CHECK(expr) do { \
     if (!(expr)) { \
+        printf("FAILED: %s at %d\n", #expr, __LINE__); \
         return __LINE__; \
     } \
 } while (0)
@@ -28,9 +31,12 @@
  * We need to ensure we don't redefine symbols. */
 
 int main(void) {
-    /* Initialize the process subsystem so process_get_current works */
+    printf("Initializing subsystems...\n");
+    /* Initialize subsystems */
+    vfs_init();
     process_init();
 
+    printf("Creating process...\n");
     /* Create a process to act as current */
     struct process* proc = process_create("test-proc");
     CHECK(proc != NULL);
@@ -38,6 +44,7 @@ int main(void) {
     proc->user_mode = true;
     process_set_current(proc);
 
+    printf("Initializing syscalls...\n");
     syscall_init();
 
     /* Test pointer definitions */
@@ -51,6 +58,7 @@ int main(void) {
     /* =========================================================================
      * 1. Test SYS_READ with NULL, kernel, and invalid user pointers
      * ========================================================================= */
+    printf("Testing SYS_READ...\n");
     CHECK(syscall_dispatch(SYS_READ, 0, null_ptr, 10, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_READ, 0, kernel_ptr, 10, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_READ, 0, kernel_ptr_high, 10, 0, 0, 0) == -EFAULT);
@@ -59,6 +67,7 @@ int main(void) {
     /* =========================================================================
      * 2. Test SYS_WRITE with NULL, kernel, and invalid user pointers
      * ========================================================================= */
+    printf("Testing SYS_WRITE...\n");
     CHECK(syscall_dispatch(SYS_WRITE, 1, null_ptr, 10, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_WRITE, 1, kernel_ptr, 10, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_WRITE, 1, kernel_ptr_high, 10, 0, 0, 0) == -EFAULT);
@@ -67,6 +76,7 @@ int main(void) {
     /* =========================================================================
      * 3. Test SYS_OPEN with NULL, kernel, and invalid user pointers
      * ========================================================================= */
+    printf("Testing SYS_OPEN...\n");
     CHECK(syscall_dispatch(SYS_OPEN, null_ptr, 0, 0, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_OPEN, kernel_ptr, 0, 0, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_OPEN, kernel_ptr_high, 0, 0, 0, 0, 0) == -EFAULT);
@@ -75,6 +85,7 @@ int main(void) {
     /* =========================================================================
      * 4. Test SYS_EXECVE with NULL, kernel, and invalid user pointers
      * ========================================================================= */
+    printf("Testing SYS_EXECVE...\n");
     CHECK(syscall_dispatch(SYS_EXECVE, null_ptr, 0, 0, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_EXECVE, kernel_ptr, 0, 0, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_EXECVE, kernel_ptr_high, 0, 0, 0, 0, 0) == -EFAULT);
@@ -87,6 +98,7 @@ int main(void) {
     /* =========================================================================
      * 5. Test SYS_WAITPID with NULL, kernel, and invalid user pointers for status
      * ========================================================================= */
+    printf("Testing SYS_WAITPID...\n");
     CHECK(syscall_dispatch(SYS_WAITPID, 100, kernel_ptr, 0, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_WAITPID, 100, kernel_ptr_high, 0, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_WAITPID, 100, (uint64_t)wrap_user_ptr, 0, 0, 0, 0) == -EFAULT);
@@ -94,6 +106,7 @@ int main(void) {
     /* =========================================================================
      * 6. Test SYS_SIGACTION with NULL, kernel, and invalid user pointers
      * ========================================================================= */
+    printf("Testing SYS_SIGACTION...\n");
     CHECK(syscall_dispatch(SYS_SIGACTION, 15, kernel_ptr, 0, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_SIGACTION, 15, kernel_ptr_high, 0, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_SIGACTION, 15, (uint64_t)wrap_user_ptr, 0, 0, 0, 0) == -EFAULT);
@@ -103,6 +116,7 @@ int main(void) {
     /* =========================================================================
      * 7. Test SYS_MMAP and SYS_MUNMAP with invalid user/kernel pointers
      * ========================================================================= */
+    printf("Testing SYS_MMAP/MUNMAP...\n");
     CHECK(syscall_dispatch(SYS_MMAP, kernel_ptr, 4096, 1, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_MUNMAP, null_ptr, 4096, 0, 0, 0, 0) == -EFAULT);
     CHECK(syscall_dispatch(SYS_MUNMAP, kernel_ptr, 4096, 0, 0, 0, 0) == -EFAULT);
@@ -111,6 +125,7 @@ int main(void) {
     /* =========================================================================
      * 8. Verify helper functions directly
      * ========================================================================= */
+    printf("Testing helper functions...\n");
     CHECK(!is_valid_user_range(NULL, 10));
     CHECK(!is_valid_user_range((const void*)kernel_ptr, 10));
     CHECK(!is_valid_user_range((const void*)kernel_ptr_high, 10));
@@ -118,5 +133,6 @@ int main(void) {
     /* Test valid user range - 0x00400000 is USER_SPACE_START */
     CHECK(is_valid_user_range((const void*)0x00400000ULL, 1024));
 
+    printf("All tests passed!\n");
     return 0;
 }

@@ -29,6 +29,7 @@ typedef unsigned char bool;
 /* size_t, ptrdiff_t */
 
 /* Kernel-specific types */
+#ifndef TACH_HOST_TEST
 typedef uint32_t pid_t;      /* Process ID */
 typedef uint32_t uid_t;      /* User ID */
 typedef uint32_t gid_t;      /* Group ID */
@@ -38,6 +39,18 @@ typedef uint64_t time_t;     /* Time type */
 typedef uint64_t tick_t;     /* Timer tick type */
 typedef uintptr_t phys_addr_t; /* Physical address type for DMA/MMU */
 typedef uintptr_t virt_addr_t; /* Virtual address type */
+#else
+/* Use host types for test compilation to avoid conflicts */
+typedef int pid_t;           /* Process ID */
+typedef int uid_t;           /* User ID */
+typedef int gid_t;           /* Group ID */
+typedef long long ssize_t;   /* Use host ssize_t (__int64) */
+typedef long off_t;          /* Use host off_t */
+typedef long long time_t;    /* Use host time_t (__time64_t) */
+typedef unsigned long long tick_t; /* Timer tick type */
+typedef uintptr_t phys_addr_t; /* Physical address type for DMA/MMU */
+typedef uintptr_t virt_addr_t; /* Virtual address type */
+#endif
 
 /* Result type for kernel operations */
 typedef int32_t result_t;

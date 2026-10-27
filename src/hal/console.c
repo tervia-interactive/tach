@@ -7,7 +7,7 @@
 #include <hal/console.h>
 #include <kernel/spinlock.h>
 
-#if defined(__i386__) || defined(__x86_64__)
+#if (defined(__i386__) || defined(__x86_64__)) && !defined(TACH_HOST_TEST)
 #include <drivers/char/serial.h>
 #include <drivers/input/keyboard.h>
 #include <drivers/video/vga_text.h>

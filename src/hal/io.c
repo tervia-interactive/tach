@@ -2,7 +2,7 @@
 #include <kernel/types.h>
 #include <hal/io.h>
 
-#if defined(__i386__) || defined(__x86_64__)
+#if (defined(__i386__) || defined(__x86_64__)) && !defined(TACH_HOST_TEST)
 
 uint8_t hal_port_in(uint16_t port) {
     uint8_t val;
