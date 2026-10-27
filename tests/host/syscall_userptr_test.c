@@ -12,7 +12,9 @@
 #include <proc/syscall.h>
 #include <proc/process.h>
 #include <mm/vmm.h>
+#include <mm/pmm.h>
 #include <fs/vfs.h>
+#include <hal/paging.h>
 
 #define CHECK(expr) do { \
     if (!(expr)) { \
@@ -20,10 +22,55 @@
     } \
 } while (0)
 
+#define MOCK_FRAMES 16
+
+static uint8_t g_frames[MOCK_FRAMES][PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
+static bool g_frame_used[MOCK_FRAMES];
 static struct process g_mock_process;
 static struct vmm_context g_mock_vmm;
 
-/* Host mocks for process and hardware functions */
+phys_addr_t pmm_alloc_frame(void) {
+    for (size_t i = 0; i < MOCK_FRAMES; i++) {
+        if (!g_frame_used[i]) {
+            g_frame_used[i] = true;
+            return (phys_addr_t)(uintptr_t)g_frames[i];
+        }
+    }
+    return 0;
+}
+
+void pmm_free_frame(phys_addr_t frame) {
+    for (size_t i = 0; i < MOCK_FRAMES; i++) {
+        if (frame == (phys_addr_t)(uintptr_t)g_frames[i]) {
+            g_frame_used[i] = false;
+        }
+    }
+}
+
+bool pmm_retain_frame(phys_addr_t frame) {
+    (void)frame;
+    return true;
+}
+
+size_t pmm_frame_refcount(phys_addr_t frame) {
+    (void)frame;
+    return 1;
+}
+
+int arch_paging_init(void) { return 0; }
+void* arch_paging_kernel_root(void) { return NULL; }
+void* arch_paging_create_root(void) { return (void*)0x1000; }
+void arch_paging_destroy_root(void* root) { (void)root; }
+void arch_paging_switch(void* root) { (void)root; }
+int arch_paging_map(void* root, uintptr_t virt, phys_addr_t phys, uint32_t flags) {
+    (void)root; (void)virt; (void)phys; (void)flags;
+    return 0;
+}
+int arch_paging_unmap(void* root, uintptr_t virt) {
+    (void)root; (void)virt;
+    return 0;
+}
+
 struct process* process_get_current(void) {
     return &g_mock_process;
 }
