@@ -33,6 +33,7 @@ typedef uint32_t pid_t;      /* Process ID */
 typedef uint32_t uid_t;      /* User ID */
 typedef uint32_t gid_t;      /* Group ID */
 typedef int32_t  ssize_t;    /* Signed size type */
+typedef int64_t  off_t;      /* File offset type */
 typedef uint64_t time_t;     /* Time type */
 typedef uint64_t tick_t;     /* Timer tick type */
 typedef uintptr_t phys_addr_t; /* Physical address type for DMA/MMU */

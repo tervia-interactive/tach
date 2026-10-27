@@ -40,8 +40,10 @@ test-host:
 	@src/build/host/userspace-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
 		tests/host/syscall_userptr_test.c \
-		src/lib/string.c src/kernel/userptr.c src/proc/syscall.c src/mm/vmm.c \
-		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c \
+		src/lib/string.c src/kernel/userptr.c src/proc/syscall.c src/proc/process.c \
+		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/console.c \
+		src/lib/printf.c src/kernel/klog.c src/fs/vfs.c src/proc/fd.c src/proc/signal.c \
+		src/proc/wait.c src/proc/scheduler.c src/hal/time.c src/sync/mutex.c \
 		-o src/build/host/syscall-userptr-test
 	@src/build/host/syscall-userptr-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
@@ -51,7 +53,7 @@ test-host:
 	@src/build/host/mm-elf-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
 		tests/host/vmm_fault_test.c src/lib/string.c src/mm/vmm.c \
-		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c \
+		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/console.c \
 		-o src/build/host/vmm-fault-test
 	@src/build/host/vmm-fault-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
