@@ -336,7 +336,7 @@ static long sys_mmap(uint64_t address, uint64_t length, uint64_t protection,
 static long sys_munmap(uint64_t address, uint64_t length, uint64_t unused3,
                        uint64_t unused4, uint64_t unused5, uint64_t unused6) {
     struct process* proc = process_get_current();
-    if (proc && proc->user_mode && address && length > 0 &&
+    if (proc && proc->user_mode && length > 0 &&
         !is_valid_user_range((const void*)(uintptr_t)address, (size_t)length)) {
         return -EFAULT;
     }

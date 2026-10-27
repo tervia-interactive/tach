@@ -54,14 +54,14 @@ test-host:
 		src/hal/cpu.c src/hal/irq.c -o src/build/host/mm-elf-test
 	@src/build/host/mm-elf-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
-		tests/host/vmm_fault_test.c src/lib/string.c src/mm/vmm.c \
-		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/console.c src/hal/io.c src/hal/smp.c src/hal/host_stubs.c \
+		tests/host/vmm_fault_test.c src/lib/string.c src/kernel/userptr.c src/mm/vmm.c \
+		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/console.c src/hal/io.c src/hal/host_stubs.c \
 		src/drivers/char/serial_8250.c src/drivers/video/vga_text.c src/drivers/input/keyboard_ps2.c \
 		-o src/build/host/vmm-fault-test
 	@src/build/host/vmm-fault-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
 		tests/host/heap_test.c src/lib/string.c src/mm/kheap.c src/mm/slab.c \
-		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/io.c src/hal/smp.c src/hal/host_stubs.c \
+		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/io.c src/hal/host_stubs.c \
 		src/drivers/char/serial_8250.c src/drivers/video/vga_text.c src/drivers/input/keyboard_ps2.c \
 		-o src/build/host/heap-test
 	@src/build/host/heap-test
