@@ -29,6 +29,7 @@ static bool g_frame_used[MOCK_FRAMES];
 static struct process g_mock_process;
 static struct vmm_context g_mock_vmm;
 
+/* PMM Mocks */
 phys_addr_t pmm_alloc_frame(void) {
     for (size_t i = 0; i < MOCK_FRAMES; i++) {
         if (!g_frame_used[i]) {
@@ -57,6 +58,7 @@ size_t pmm_frame_refcount(phys_addr_t frame) {
     return 1;
 }
 
+/* Arch Paging Mocks */
 int arch_paging_init(void) { return 0; }
 void* arch_paging_kernel_root(void) { return NULL; }
 void* arch_paging_create_root(void) { return (void*)0x1000; }
@@ -71,8 +73,60 @@ int arch_paging_unmap(void* root, uintptr_t virt) {
     return 0;
 }
 
+/* Console Mocks */
+void hal_console_lock(void) {}
+void hal_console_unlock(void) {}
+void hal_console_putchar(char c) { (void)c; }
+void hal_console_write(const char* s, size_t len) { (void)s; (void)len; }
+void hal_console_clear(void) {}
+char hal_console_getchar(void) { return '\n'; }
+
+/* Process Mocks */
 struct process* process_get_current(void) {
     return &g_mock_process;
+}
+void process_exit(int code) { (void)code; }
+struct process* process_fork(struct process* parent) { (void)parent; return NULL; }
+pid_t process_waitpid(pid_t pid, int* status, int options) {
+    (void)pid; (void)status; (void)options;
+    return -ECHILD;
+}
+int process_exec_image_args(struct process* proc, const void* image, size_t size,
+                            const char* name, const char* const argv[], size_t argc) {
+    (void)proc; (void)image; (void)size; (void)name; (void)argv; (void)argc;
+    return -ENOENT;
+}
+
+/* VFS & FD Mocks */
+struct fd_entry* fd_get(struct fd_table* table, int fd) {
+    (void)table; (void)fd;
+    return NULL;
+}
+int fd_alloc(struct fd_table* table, struct vnode* vnode, int flags) {
+    (void)table; (void)vnode; (void)flags;
+    return -1;
+}
+void fd_put(struct fd_table* table, int fd) { (void)table; (void)fd; }
+struct vnode* vfs_open(const char* path, int flags) { (void)path; (void)flags; return NULL; }
+int vfs_close(struct vnode* vnode) { (void)vnode; return 0; }
+ssize_t vfs_read(struct vnode* vnode, void* buf, size_t count, off_t offset) {
+    (void)vnode; (void)buf; (void)count; (void)offset;
+    return -1;
+}
+ssize_t vfs_write(struct vnode* vnode, const void* buf, size_t count, off_t offset) {
+    (void)vnode; (void)buf; (void)count; (void)offset;
+    return -1;
+}
+int vfs_read_file(const char* path, const void** image, size_t* size) {
+    (void)path; (void)image; (void)size;
+    return -ENOENT;
+}
+
+/* Signal Mocks */
+int signal_send(pid_t pid, int sig) { (void)pid; (void)sig; return 0; }
+int signal_set_action(struct process* proc, int sig, const sigaction_t* act, sigaction_t* old) {
+    (void)proc; (void)sig; (void)act; (void)old;
+    return 0;
 }
 
 void kernel_panic_with_code(const char* reason, int code) {
@@ -99,9 +153,9 @@ int main(void) {
     /* Test pointer definitions */
     uint64_t null_ptr = 0;
     uint64_t kernel_ptr = 0x00100000ULL;        /* Kernel base (1MB) */
-    uint64_t kernel_ptr_high = 0xC0000000ULL;   /* Higher-half kernel */
+    uint64_t kernel_ptr_high = 0xFFFFFFFF80000000ULL; /* Higher-half kernel */
     uint64_t invalid_user_ptr = 0x00700000ULL;  /* Unmapped user pointer */
-    uint64_t wrap_user_ptr = 0x7FFFFFFFULL;     /* Boundary/overflow pointer */
+    uint64_t wrap_user_ptr = 0x00007FFFFFFFFFFFULL;   /* Boundary/overflow pointer */
 
     /* =========================================================================
      * 1. Test SYS_READ with NULL, kernel, and invalid user pointers
