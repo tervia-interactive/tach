@@ -8,6 +8,7 @@
 #include <mm/vmm.h>
 #include <proc/process.h>
 #include <kernel/percpu.h>
+#include <kernel/userptr.h>
 
 #define VMM_MAX_CONTEXTS 32
 #define VMM_MAX_MAPPINGS 512
@@ -338,11 +339,14 @@ int vmm_protect(struct vmm_context* context, void* address, uint32_t flags) {
 static int copy_user_range(void* destination, struct vmm_context* context,
                            const void* source, size_t size, bool to_user) {
     if (!context || (!destination && size) || (!source && size)) return -EFAULT;
+    const void* user_ptr = to_user ? destination : source;
+    if (size > 0 && !is_valid_user_range(user_ptr, size)) return -EFAULT;
     uint8_t* output = (uint8_t*)destination;
     const uint8_t* input = (const uint8_t*)source;
     while (size) {
         uintptr_t user_address = to_user ? (uintptr_t)output :
                                            (uintptr_t)input;
+        (void)vmm_handle_fault(user_address, to_user ? 1 : 0);
         uint32_t flags = vmm_get_flags(context, (void*)user_address);
         if (to_user && (flags & VMM_COW)) {
             int result = break_cow(context,

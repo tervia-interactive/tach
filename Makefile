@@ -30,13 +30,24 @@ test-host:
 	@mkdir -p src/build/host
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
 		tests/host/userspace_test.c \
-		src/lib/string.c src/lib/printf.c src/kernel/klog.c \
+		src/lib/string.c src/lib/printf.c src/kernel/klog.c src/kernel/userptr.c \
 		src/fs/vfs.c src/proc/fd.c src/proc/process.c \
 		src/proc/scheduler.c src/proc/syscall.c src/proc/signal.c src/proc/wait.c \
 		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/time.c src/hal/user.c src/hal/smp.c src/ipc/sem.c \
 		src/term/tty.c src/term/vterm.c src/term/shell.c \
 		src/userland/runtime.c \
 		-o src/build/host/userspace-test
+		@src/build/host/userspace-test
+		$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
+			tests/host/syscall_userptr_test.c \
+			src/lib/string.c src/lib/printf.c src/kernel/klog.c src/kernel/userptr.c \
+			src/fs/vfs.c src/proc/fd.c src/proc/process.c \
+			src/proc/scheduler.c src/proc/syscall.c src/proc/signal.c src/proc/wait.c \
+			src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/time.c src/hal/user.c src/hal/smp.c src/ipc/sem.c \
+			src/term/tty.c src/term/vterm.c src/term/shell.c src/mm/vmm.c src/mm/pmm.c \
+			src/userland/runtime.c \
+			-o src/build/host/syscall-userptr-test
+		@src/build/host/syscall-userptr-test
 	@src/build/host/userspace-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
 		tests/host/mm_elf_test.c src/lib/string.c src/mm/pmm.c \

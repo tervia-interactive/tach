@@ -7,15 +7,20 @@
 #include <mm/pmm.h>
 #include <mm/vmm.h>
 #include <kernel/signal.h>
+#include <kernel/userptr.h>
 
 static syscall_handler_t g_syscalls[SYSCALL_TABLE_SIZE];
 
 static int copy_from_caller(struct process* process, void* destination,
                             const void* source, size_t size) {
     if (!process || !destination || (!source && size)) return -EFAULT;
+    if (size > 0 && !is_valid_user_range(source, size)) return -EFAULT;
 #ifdef TACH_HOST_TEST
-    memcpy(destination, source, size);
-    return 0;
+    if (!process->user_mode || !process->mm) {
+        memcpy(destination, source, size);
+        return 0;
+    }
+    return vmm_copy_from_user(destination, process->mm, source, size);
 #else
     if (!process->user_mode) {
         memcpy(destination, source, size);
@@ -28,9 +33,13 @@ static int copy_from_caller(struct process* process, void* destination,
 static int copy_to_caller(struct process* process, void* destination,
                           const void* source, size_t size) {
     if (!process || (!destination && size) || !source) return -EFAULT;
+    if (size > 0 && !is_valid_user_range(destination, size)) return -EFAULT;
 #ifdef TACH_HOST_TEST
-    memcpy(destination, source, size);
-    return 0;
+    if (!process->user_mode || !process->mm) {
+        memcpy(destination, source, size);
+        return 0;
+    }
+    return vmm_copy_to_user(process->mm, destination, source, size);
 #else
     if (!process->user_mode) {
         memcpy(destination, source, size);
@@ -43,7 +52,11 @@ static int copy_to_caller(struct process* process, void* destination,
 static int copy_path_from_caller(struct process* process, char* destination,
                                  size_t capacity, const char* source) {
     if (!process || !destination || !capacity || !source) return -EFAULT;
+    if (!is_valid_user_range(source, 1)) return -EFAULT;
 #ifdef TACH_HOST_TEST
+    if (process->user_mode && process->mm)
+        return vmm_copy_string_from_user(destination, capacity,
+                                         process->mm, source);
     if (strlen(source) >= capacity) return -ENAMETOOLONG;
     strcpy(destination, source);
     return 0;
@@ -68,7 +81,7 @@ static long sys_read(uint64_t fd, uint64_t buffer, uint64_t count,
                      uint64_t unused4, uint64_t unused5, uint64_t unused6) {
     (void)unused4; (void)unused5; (void)unused6;
     struct process* proc = process_get_current();
-    if (!proc || !buffer) {
+    if (!proc || !buffer || !is_valid_user_range((const void*)(uintptr_t)buffer, (size_t)count)) {
         return -EFAULT;
     }
     struct fd_entry* entry = fd_get(proc->fds, (int)fd);
@@ -96,7 +109,7 @@ static long sys_write(uint64_t fd, uint64_t buffer, uint64_t count,
                       uint64_t unused4, uint64_t unused5, uint64_t unused6) {
     (void)unused4; (void)unused5; (void)unused6;
     struct process* proc = process_get_current();
-    if (!proc || !buffer) {
+    if (!proc || !buffer || !is_valid_user_range((const void*)(uintptr_t)buffer, (size_t)count)) {
         return -EFAULT;
     }
     struct fd_entry* entry = fd_get(proc->fds, (int)fd);
@@ -125,7 +138,7 @@ static long sys_open(uint64_t path, uint64_t flags, uint64_t unused3,
                      uint64_t unused4, uint64_t unused5, uint64_t unused6) {
     (void)unused3; (void)unused4; (void)unused5; (void)unused6;
     struct process* proc = process_get_current();
-    if (!proc || !path) {
+    if (!proc || !path || !is_valid_user_range((const void*)(uintptr_t)path, 1)) {
         return -EFAULT;
     }
     char local_path[256];
@@ -178,8 +191,8 @@ static long sys_fork(uint64_t unused1, uint64_t unused2, uint64_t unused3,
 static long sys_execve(uint64_t path, uint64_t argv, uint64_t envp,
                        uint64_t unused4, uint64_t unused5, uint64_t unused6) {
     (void)envp; (void)unused4; (void)unused5; (void)unused6;
-    if (!path) return -EFAULT;
     struct process* process = process_get_current();
+    if (!process || !path || !is_valid_user_range((const void*)(uintptr_t)path, 1)) return -EFAULT;
     char local_path[256];
     int copied = copy_path_from_caller(process, local_path,
         sizeof(local_path), (const char*)(uintptr_t)path);
@@ -192,6 +205,7 @@ static long sys_execve(uint64_t path, uint64_t argv, uint64_t envp,
     const char* arguments[16];
     size_t argc = 0;
     if (argv) {
+        if (!is_valid_user_range((const void*)(uintptr_t)argv, sizeof(uintptr_t))) return -EFAULT;
         for (; argc < 16; argc++) {
             uintptr_t user_argument = 0;
             result = copy_from_caller(process, &user_argument,
@@ -199,6 +213,7 @@ static long sys_execve(uint64_t path, uint64_t argv, uint64_t envp,
                 sizeof(user_argument));
             if (result < 0) return result;
             if (!user_argument) break;
+            if (!is_valid_user_range((const void*)user_argument, 1)) return -EFAULT;
             result = copy_path_from_caller(process, argument_storage[argc],
                 sizeof(argument_storage[argc]),
                 (const char*)user_argument);
@@ -214,6 +229,7 @@ static long sys_execve(uint64_t path, uint64_t argv, uint64_t envp,
 static long sys_waitpid(uint64_t pid, uint64_t status, uint64_t options,
                         uint64_t unused4, uint64_t unused5, uint64_t unused6) {
     (void)unused4; (void)unused5; (void)unused6;
+    if (status && !is_valid_user_range((const void*)(uintptr_t)status, sizeof(int))) return -EFAULT;
     int local_status = 0;
     pid_t result = process_waitpid((pid_t)pid,
                                    status ? &local_status : NULL,
@@ -236,6 +252,8 @@ static long sys_sigaction(uint64_t signal, uint64_t action, uint64_t old,
                           uint64_t unused6) {
     (void)unused4; (void)unused5; (void)unused6;
     struct process* process = process_get_current();
+    if (action && !is_valid_user_range((const void*)(uintptr_t)action, sizeof(sigaction_t))) return -EFAULT;
+    if (old && !is_valid_user_range((const void*)(uintptr_t)old, sizeof(sigaction_t))) return -EFAULT;
     sigaction_t local_action;
     sigaction_t old_action;
     const sigaction_t* action_pointer = NULL;
@@ -268,6 +286,9 @@ static long sys_brk(uint64_t address, uint64_t unused2, uint64_t unused3,
 
 static long sys_mmap(uint64_t address, uint64_t length, uint64_t protection,
                      uint64_t flags, uint64_t fd, uint64_t offset) {
+    if (address && length > 0 && !is_valid_user_range((const void*)(uintptr_t)address, (size_t)length)) {
+        return -EFAULT;
+    }
 #ifdef TACH_HOST_TEST
     (void)address; (void)length; (void)protection;
     (void)flags; (void)fd; (void)offset;
@@ -321,6 +342,9 @@ static long sys_mmap(uint64_t address, uint64_t length, uint64_t protection,
 
 static long sys_munmap(uint64_t address, uint64_t length, uint64_t unused3,
                        uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    if (address && length > 0 && !is_valid_user_range((const void*)(uintptr_t)address, (size_t)length)) {
+        return -EFAULT;
+    }
 #ifdef TACH_HOST_TEST
     (void)address; (void)length; (void)unused3;
     (void)unused4; (void)unused5; (void)unused6;
