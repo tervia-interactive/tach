@@ -37,9 +37,13 @@ test-host:
 		src/term/tty.c src/term/vterm.c src/term/shell.c \
 		src/userland/runtime.c \
 		-o src/build/host/userspace-test
-t	@src/build/host/userspace-test
-		$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \n			tests/host/syscall_userptr_test.c \n			src/lib/string.c src/kernel/userptr.c src/proc/syscall.c src/mm/vmm.c \n			src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c \n			-o src/build/host/syscall-userptr-test
-		@src/build/host/syscall-userptr-test
+	@src/build/host/userspace-test
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
+		tests/host/syscall_userptr_test.c \
+		src/lib/string.c src/kernel/userptr.c src/proc/syscall.c src/mm/vmm.c \
+		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c \
+		-o src/build/host/syscall-userptr-test
+	@src/build/host/syscall-userptr-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
 		tests/host/mm_elf_test.c src/lib/string.c src/mm/pmm.c \
 		src/proc/elf_loader.c src/sync/atomic.c src/sync/spinlock.c \
