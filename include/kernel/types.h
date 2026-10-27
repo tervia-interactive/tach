@@ -44,7 +44,7 @@ typedef uintptr_t virt_addr_t; /* Virtual address type */
 typedef int pid_t;           /* Process ID */
 typedef int uid_t;           /* User ID */
 typedef int gid_t;           /* Group ID */
-typedef long long ssize_t;   /* Use host ssize_t (__int64) */
+/* Note: ssize_t is defined by system headers in host mode */
 typedef long off_t;          /* Use host off_t */
 typedef long long time_t;    /* Use host time_t (__time64_t) */
 typedef unsigned long long tick_t; /* Timer tick type */
