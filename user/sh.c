@@ -75,22 +75,57 @@ static int parse_small_int(const char* text, int fallback) {
     return negative ? -value : value;
 }
 
-/* Caminho absoluto a partir de um caminho possivelmente relativo ao cwd
- * logico. Nao trata "." / "..". -1 se nao couber em `capacity`. */
+/* Normaliza um caminho absoluto: colapsa barras repetidas, remove "." e
+ * barra final, e resolve ".." (a raiz e seu proprio pai). `output` recebe
+ * sempre um caminho absoluto sem barra final, exceto "/". -1 se nao couber
+ * em `capacity`. `input` e `output` nao podem se sobrepor. */
+static int normalize_path(const char* input, char* output, size_t capacity) {
+    if (capacity < 2 || input[0] != '/') return -1;
+    output[0] = '/';
+    size_t length = 1;
+    const char* cursor = input;
+    while (*cursor) {
+        while (*cursor == '/') cursor++;
+        if (!*cursor) break;
+        const char* start = cursor;
+        while (*cursor && *cursor != '/') cursor++;
+        size_t part = (size_t)(cursor - start);
+
+        if (part == 1 && start[0] == '.') continue;
+        if (part == 2 && start[0] == '.' && start[1] == '.') {
+            while (length > 1 && output[length - 1] != '/') length--;
+            if (length > 1) length--; /* remove a barra que antecede o componente */
+            continue;
+        }
+
+        size_t separator = length > 1 ? 1 : 0;
+        if (length + separator + part + 1 > capacity) return -1;
+        if (separator) output[length++] = '/';
+        memcpy(output + length, start, part);
+        length += part;
+    }
+    output[length] = 0;
+    return 0;
+}
+
+/* Caminho absoluto e normalizado a partir de um caminho possivelmente
+ * relativo ao cwd logico (trata ".", ".." e barras repetidas). -1 se nao
+ * couber em `capacity`. */
 static int resolve_path(const char* path, char* out, size_t capacity) {
+    static char joined[PATH_LEN + LINE_LEN + 2]; /* estatico: pilha de 1 pagina */
     size_t used = 0;
     if (path[0] != '/') {
         size_t cwd_length = strlen(g_cwd);
-        if (cwd_length + 1 >= capacity) return -1;
-        memcpy(out, g_cwd, cwd_length);
+        if (cwd_length + 1 >= sizeof(joined)) return -1;
+        memcpy(joined, g_cwd, cwd_length);
         used = cwd_length;
-        if (used > 1) out[used++] = '/';
+        if (used > 1) joined[used++] = '/';
     }
     size_t length = strlen(path);
-    if (used + length >= capacity) return -1;
-    memcpy(out + used, path, length);
-    out[used + length] = 0;
-    return 0;
+    if (used + length >= sizeof(joined)) return -1;
+    memcpy(joined + used, path, length);
+    joined[used + length] = 0;
+    return normalize_path(joined, out, capacity);
 }
 
 /* ---------------------------------------------------------- arquivos */
@@ -301,7 +336,7 @@ static void command_help(void) {
         "  ps                   list processes\n"
         "  id | whoami          show current identity\n"
         "  pid                  show this shell's pid\n"
-        "  pwd | cd [path]      inspect or change logical directory\n"
+        "  pwd | cd [path]      inspect or change directory (. and .. work)\n"
         "  ls [path]            list the root filesystem\n"
         "  cat <file>...        print files (/proc/version, /proc/meminfo, ...)\n"
         "  history              show command history\n"
@@ -344,7 +379,13 @@ static void command_history(void) {
     }
 }
 
-static int command_ls(const char* path) {
+static int command_ls(const char* argument) {
+    char resolved[PATH_LEN];
+    const char* path = resolved;
+    if (resolve_path(argument, resolved, sizeof(resolved)) < 0) {
+        err("ls: "); err(argument); err(": path too long\n");
+        return 1;
+    }
     if (strcmp(path, "/") == 0) {
         out("bin/\ndev/\nproc/\nsbin/\ntmp/\n");
     } else if (strcmp(path, "/bin") == 0) {
@@ -384,7 +425,7 @@ static int command_ls(const char* path) {
             }
         }
     } else {
-        err("ls: "); err(path); err(": no such directory\n");
+        err("ls: "); err(argument); err(": no such directory\n");
         return 1;
     }
     return 0;
@@ -408,13 +449,15 @@ static int command_cat(int argc, char** argv) {
 }
 
 static int command_cd(const char* path) {
-    if (!is_dir(path)) {
+    char resolved[PATH_LEN];
+    if (resolve_path(path, resolved, sizeof(resolved)) < 0 ||
+        !is_dir(resolved)) {
         err("cd: "); err(path); err(": no such directory\n");
         return 1;
     }
     size_t i = 0;
-    while (path[i] && i + 1 < sizeof(g_cwd)) {
-        g_cwd[i] = path[i];
+    while (resolved[i] && i + 1 < sizeof(g_cwd)) {
+        g_cwd[i] = resolved[i];
         i++;
     }
     g_cwd[i] = 0;
