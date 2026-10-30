@@ -38,6 +38,14 @@ SECTIONS
     __kernel_start = 0x00100000;
     __kernel_end = .;
 
+    /* User programs are linked at 0x400000 (user/user.ld) and USER_SPACE_START
+     * is the same address. Page mappings made for a user process replace the
+     * kernel's identity mapping at those addresses, so the kernel image
+     * (including .bss) must end below it. Fail the link instead of corrupting
+     * kernel data at run time. */
+    ASSERT(__kernel_end <= 0x00400000,
+           "kernel image overlaps user space (0x400000): shrink .bss")
+
     /* Discard sections GCC/ld emit automatically that this freestanding,
      * non-PIC, no-unwind kernel has no use for. Without this, ld inserts
      * them as "orphan" sections wherever it likes in the layout, which

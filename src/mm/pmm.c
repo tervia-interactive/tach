@@ -7,7 +7,13 @@
 #define PMM_BITMAP_BYTES (PMM_MAX_FRAMES / 8)
 
 static uint8_t g_frame_bitmap[PMM_BITMAP_BYTES];
-static uint16_t g_frame_refs[PMM_MAX_FRAMES];
+/* Per-frame reference counts. Kept to one byte on purpose: with at most
+ * MAX_PROCESSES (32) address spaces a frame never needs more than a few dozen
+ * references, and a uint16_t table (2 MiB) pushed the kernel's .bss past
+ * 0x400000, where user programs are loaded (see user/user.ld). A count of
+ * PMM_REF_SATURATED means "do not retain any further". */
+#define PMM_REF_SATURATED 0xffu
+static uint8_t g_frame_refs[PMM_MAX_FRAMES];
 static size_t g_frame_limit;
 static size_t g_total_pages;
 static size_t g_free_pages;
@@ -156,7 +162,7 @@ bool pmm_retain_frame(phys_addr_t frame_address) {
     if (frame >= g_frame_limit) return false;
     spinlock_lock(&g_pmm_lock);
     bool retained = frame_is_used(frame) && g_frame_refs[frame] &&
-                    g_frame_refs[frame] != 0xffffu;
+                    g_frame_refs[frame] != PMM_REF_SATURATED;
     if (retained) g_frame_refs[frame]++;
     spinlock_unlock(&g_pmm_lock);
     return retained;
