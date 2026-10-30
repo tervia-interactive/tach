@@ -287,6 +287,7 @@ static void command_help(void) {
         "  ls [path]            list the root filesystem\n"
         "  cat <file>...        print files (/proc/version, /proc/meminfo, ...)\n"
         "  history              show command history\n"
+        "  kill [-sig] <pid>... send a signal (default SIGTERM)\n"
         "  syscalls             show active syscall ABI entries\n"
         "  status               show the previous command status\n"
         "  true | false         succeed / fail\n"
@@ -428,6 +429,37 @@ static int run_external(char** argv) {
     return status;
 }
 
+static int command_kill(int argc, char** argv) {
+    int sig = SIGTERM;
+    int index = 1;
+    if (index < argc && argv[index][0] == '-' && argv[index][1]) {
+        sig = parse_small_int(argv[index] + 1, -1);
+        if (sig <= 0 || sig >= 32) {
+            err("kill: invalid signal\n");
+            return 2;
+        }
+        index++;
+    }
+    if (index >= argc) {
+        err("usage: kill [-sig] pid...\n");
+        return 2;
+    }
+    int status = 0;
+    for (; index < argc; index++) {
+        int pid = parse_small_int(argv[index], -1);
+        if (pid <= 0) {
+            err("kill: invalid pid: "); err(argv[index]); err("\n");
+            status = 1;
+            continue;
+        }
+        if (kill((pid_t)pid, sig) < 0) {
+            err("kill: cannot signal pid "); err(argv[index]); err("\n");
+            status = 1;
+        }
+    }
+    return status;
+}
+
 static int run_command(int argc, char** argv) {
     const char* cmd = argv[0];
     if (strcmp(cmd, "help") == 0) {
@@ -467,6 +499,8 @@ static int run_command(int argc, char** argv) {
         return command_cat(argc, argv);
     } else if (strcmp(cmd, "history") == 0) {
         command_history();
+    } else if (strcmp(cmd, "kill") == 0) {
+        return command_kill(argc, argv);
     } else if (strcmp(cmd, "syscalls") == 0) {
         if (cat_file("/proc/syscalls") < 0) {
             err("syscalls: /proc/syscalls unavailable\n");

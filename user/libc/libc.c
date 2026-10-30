@@ -58,6 +58,26 @@ int dup2(int old_fd, int new_fd) {
 off_t lseek(int fd, off_t offset, int whence) {
     return (off_t)raw_syscall(SYS_LSEEK, fd, (long)offset, whence, 0, 0, 0);
 }
+int kill(pid_t pid, int sig) {
+    return (int)raw_syscall(SYS_KILL, pid, sig, 0, 0, 0, 0);
+}
+int sigaction(int sig, const struct sigaction* action,
+              struct sigaction* old_action) {
+    return (int)raw_syscall(SYS_SIGACTION, sig, (long)action,
+                            (long)old_action, 0, 0, 0);
+}
+void* mmap(void* address, size_t length, int protection, int flags,
+           int fd, off_t offset) {
+    long result = raw_syscall(SYS_MMAP, (long)address, (long)length,
+                              protection, flags, fd, (long)offset);
+    /* O kernel devolve -errno em caso de erro. */
+    if (result < 0 && result > -4096) return MAP_FAILED;
+    return (void*)result;
+}
+int munmap(void* address, size_t length) {
+    return (int)raw_syscall(SYS_MUNMAP, (long)address, (long)length,
+                            0, 0, 0, 0);
+}
 void* brk(void* address) {
     return (void*)raw_syscall(SYS_BRK, (long)address, 0, 0, 0, 0, 0);
 }
@@ -66,24 +86,112 @@ void _exit(int status) {
     for (;;) __asm__ volatile("pause");
 }
 
-static unsigned char* heap_cursor;
+/* Alocador de first-fit sobre brk(). Os blocos formam uma lista ordenada por
+ * endereco e contigua, entao free() consegue fundir vizinhos livres. */
+struct block {
+    size_t size;        /* bytes uteis (multiplo de 16) */
+    struct block* next;
+    int free;
+} __attribute__((aligned(16)));
+
+#define BLOCK_HEADER sizeof(struct block)
+#define BLOCK_MIN_SPLIT 16u
+
+static struct block* heap_head;
+static struct block* heap_tail;
 static unsigned char* heap_end;
-void* malloc(size_t size) {
-    if (!size) return (void*)0;
-    size = (size + 15u) & ~(size_t)15u;
-    if (!heap_cursor) heap_cursor = heap_end = (unsigned char*)brk((void*)0);
-    if (!heap_cursor || heap_cursor + size < heap_cursor) return (void*)0;
-    if (heap_cursor + size > heap_end) {
-        unsigned char* requested = heap_cursor + size;
-        void* result = brk(requested);
-        if (result != requested) return (void*)0;
-        heap_end = requested;
-    }
-    void* result = heap_cursor;
-    heap_cursor += size;
-    return result;
+static int heap_ready;
+
+static int heap_init(void) {
+    unsigned char* base = (unsigned char*)brk((void*)0);
+    if (!base || (size_t)base > (size_t)-4096) return -1;
+    unsigned char* aligned =
+        (unsigned char*)(((size_t)base + 15u) & ~(size_t)15u);
+    if (aligned != base && (unsigned char*)brk(aligned) != aligned) return -1;
+    heap_end = aligned;
+    heap_ready = 1;
+    return 0;
 }
-void free(void* pointer) { (void)pointer; }
+
+static void block_split(struct block* block, size_t size) {
+    if (block->size < size + BLOCK_HEADER + BLOCK_MIN_SPLIT) return;
+    struct block* rest =
+        (struct block*)((unsigned char*)block + BLOCK_HEADER + size);
+    rest->size = block->size - size - BLOCK_HEADER;
+    rest->free = 1;
+    rest->next = block->next;
+    block->next = rest;
+    block->size = size;
+    if (heap_tail == block) heap_tail = rest;
+}
+
+void* malloc(size_t size) {
+    if (!size || size > (size_t)-1 / 2) return (void*)0;
+    size = (size + 15u) & ~(size_t)15u;
+    if (!heap_ready && heap_init() < 0) return (void*)0;
+
+    for (struct block* block = heap_head; block; block = block->next) {
+        if (block->free && block->size >= size) {
+            block_split(block, size);
+            block->free = 0;
+            return (unsigned char*)block + BLOCK_HEADER;
+        }
+    }
+
+    size_t total = BLOCK_HEADER + size;
+    if ((size_t)heap_end + total < (size_t)heap_end) return (void*)0;
+    unsigned char* requested = heap_end + total;
+    if ((unsigned char*)brk(requested) != requested) return (void*)0;
+
+    struct block* block = (struct block*)heap_end;
+    block->size = size;
+    block->next = (struct block*)0;
+    block->free = 0;
+    if (heap_tail) heap_tail->next = block; else heap_head = block;
+    heap_tail = block;
+    heap_end = requested;
+    return (unsigned char*)block + BLOCK_HEADER;
+}
+
+void free(void* pointer) {
+    if (!pointer) return;
+    struct block* block = (struct block*)((unsigned char*)pointer - BLOCK_HEADER);
+    /* Ignora ponteiros fora do heap e double free. */
+    if ((unsigned char*)block < (unsigned char*)heap_head ||
+        (unsigned char*)pointer >= heap_end || block->free) return;
+    block->free = 1;
+    for (struct block* cursor = heap_head; cursor && cursor->next;) {
+        if (cursor->free && cursor->next->free) {
+            struct block* absorbed = cursor->next;
+            cursor->size += BLOCK_HEADER + absorbed->size;
+            cursor->next = absorbed->next;
+            if (heap_tail == absorbed) heap_tail = cursor;
+        } else {
+            cursor = cursor->next;
+        }
+    }
+}
+
+void* realloc(void* pointer, size_t size) {
+    if (!pointer) return malloc(size);
+    if (!size) { free(pointer); return (void*)0; }
+    if (size > (size_t)-1 / 2) return (void*)0;
+    struct block* block = (struct block*)((unsigned char*)pointer - BLOCK_HEADER);
+    if (block->size >= ((size + 15u) & ~(size_t)15u)) return pointer;
+    void* fresh = malloc(size);
+    if (!fresh) return (void*)0;
+    memcpy(fresh, pointer, block->size);
+    free(pointer);
+    return fresh;
+}
+
+void* calloc(size_t count, size_t size) {
+    if (count && size > (size_t)-1 / count) return (void*)0;
+    size_t total = count * size;
+    void* pointer = malloc(total);
+    if (pointer) memset(pointer, 0, total);
+    return pointer;
+}
 
 /* Com -O2 o GCC pode gerar chamadas a memcpy/memset/memmove/memcmp mesmo em
  * codigo freestanding; o atributo impede que estes loops virem chamadas a si
@@ -137,3 +245,78 @@ char* strcpy(char* destination, const char* source) {
     char* result = destination; while ((*destination++ = *source++)) {} return result;
 }
 void puts_fd(int fd, const char* text) { (void)write(fd, text, strlen(text)); }
+
+NO_LOOP_PATTERNS void* memchr(const void* source, int value, size_t count) {
+    const unsigned char* s = (const unsigned char*)source;
+    while (count--) {
+        if (*s == (unsigned char)value) return (void*)s;
+        s++;
+    }
+    return (void*)0;
+}
+NO_LOOP_PATTERNS size_t strnlen(const char* text, size_t limit) {
+    size_t length = 0;
+    while (text && length < limit && text[length]) length++;
+    return length;
+}
+NO_LOOP_PATTERNS int strncmp(const char* left, const char* right,
+                             size_t count) {
+    while (count && *left && *left == *right) { left++; right++; count--; }
+    if (!count) return 0;
+    return (unsigned char)*left - (unsigned char)*right;
+}
+NO_LOOP_PATTERNS char* strncpy(char* destination, const char* source,
+                               size_t count) {
+    size_t i = 0;
+    for (; i < count && source[i]; i++) destination[i] = source[i];
+    for (; i < count; i++) destination[i] = '\0';
+    return destination;
+}
+NO_LOOP_PATTERNS char* strcat(char* destination, const char* source) {
+    char* end = destination;
+    while (*end) end++;
+    while ((*end++ = *source++)) {}
+    return destination;
+}
+NO_LOOP_PATTERNS char* strchr(const char* text, int ch) {
+    char target = (char)ch;
+    for (;; text++) {
+        if (*text == target) return (char*)text;
+        if (!*text) return (char*)0;
+    }
+}
+NO_LOOP_PATTERNS char* strrchr(const char* text, int ch) {
+    char target = (char)ch;
+    const char* last = (const char*)0;
+    for (;; text++) {
+        if (*text == target) last = text;
+        if (!*text) break;
+    }
+    return (char*)last;
+}
+NO_LOOP_PATTERNS char* strstr(const char* haystack, const char* needle) {
+    if (!*needle) return (char*)haystack;
+    for (; *haystack; haystack++) {
+        const char* h = haystack;
+        const char* n = needle;
+        while (*h && *n && *h == *n) { h++; n++; }
+        if (!*n) return (char*)haystack;
+    }
+    return (char*)0;
+}
+char* strdup(const char* text) {
+    size_t length = strlen(text) + 1;
+    char* copy = (char*)malloc(length);
+    if (copy) memcpy(copy, text, length);
+    return copy;
+}
+int atoi(const char* text) {
+    while (*text == ' ' || *text == '\t' || *text == '\n') text++;
+    int negative = 0;
+    if (*text == '-') { negative = 1; text++; }
+    else if (*text == '+') text++;
+    unsigned int value = 0;
+    while (*text >= '0' && *text <= '9')
+        value = value * 10u + (unsigned int)(*text++ - '0');
+    return negative ? (int)(0u - value) : (int)value;
+}
