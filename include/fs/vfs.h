@@ -7,6 +7,7 @@
 #define _FS_VFS_H
 
 #include <kernel/types.h>
+#include <fs/stat.h>
 
 struct dirent {
     uint32_t d_ino;
@@ -63,6 +64,33 @@ struct vnode* vfs_open(const char* path, int flags);
 /* Como vfs_open, mas grava em *error o -errno da falha (ENOENT, ENOSPC...). */
 struct vnode* vfs_open_err(const char* path, int flags, int* error);
 int vfs_unlink(const char* path);
+
+/* Diretorios: /, /dev, /proc, /proc/self e qualquer prefixo de arquivo do
+ * initrd (/bin, /sbin...) existem de verdade; /tmp e tratado pelo tmpfs. */
+
+/* Normaliza IN PLACE um caminho absoluto: colapsa "//", remove "." e a barra
+ * final, resolve ".." (a raiz e seu proprio pai). O resultado nunca e maior
+ * que a entrada. -EINVAL se `path` nao comecar com '/'. */
+int vfs_normalize_path(char* path);
+
+/* Monta em `out` o caminho absoluto e normalizado de `path`, relativo a `cwd`
+ * (NULL ou invalido = "/"). `out` nao pode se sobrepor a `path`. -ENOENT para
+ * caminho vazio, -ENAMETOOLONG se nao couber em `capacity`. */
+int vfs_resolve_path(const char* cwd, const char* path, char* out,
+                     size_t capacity);
+
+/* Devolve em *entry a entrada de numero `index` (0, 1, 2...) do diretorio.
+ * 1 = entrada preenchida, 0 = fim do diretorio, -errno em erro
+ * (-ENOTDIR se `dir` nao for um diretorio). d_type recebe VNODE_*. */
+int vfs_readdir(struct vnode* dir, size_t index, struct dirent* entry);
+
+/* Metadados de um vnode ja aberto / de um caminho absoluto normalizado. */
+int vfs_stat_vnode(struct vnode* vnode, struct tach_stat* info);
+int vfs_stat(const char* path, struct tach_stat* info);
+
+/* Desfaz um vfs_open_err que nao virou descritor (fecha e chama o hook
+ * `release`, como close() faz para um descritor). */
+void vfs_release(struct vnode* vnode);
 int vfs_close(struct vnode* vn);
 ssize_t vfs_read(struct vnode* vn, void* buf, size_t count, int64_t offset);
 ssize_t vfs_write(struct vnode* vn, const void* buf, size_t count, int64_t offset);

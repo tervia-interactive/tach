@@ -31,4 +31,7 @@ struct vnode* tmpfs_lookup(const char* path, int flags, int* error);
  * aberto por algum descritor). */
 int tmpfs_unlink(const char* path);
 
+/* Entrada `index` (0, 1, ...) do diretorio /tmp. 1 = preenchida, 0 = fim. */
+int tmpfs_list(size_t index, struct dirent* entry);
+
 #endif /* _FS_TMPFS_H */

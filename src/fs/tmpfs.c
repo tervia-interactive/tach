@@ -200,6 +200,29 @@ void tmpfs_init(void) {
 
 struct vnode* tmpfs_create_root(void) { return &g_dir; }
 
+int tmpfs_list(size_t index, struct dirent* entry) {
+    if (!entry) return -EFAULT;
+    int result = 0;
+    size_t seen = 0;
+    spinlock_lock(&g_tmpfs_lock);
+    for (size_t i = 0; i < TMPFS_MAX_FILES; i++) {
+        if (!g_files[i].used) continue;
+        if (seen++ != index) continue;
+        const char* name = g_files[i].vnode.name;
+        size_t length = strlen(name); /* <= TMPFS_NAME_MAX, cabe em d_name */
+        memset(entry, 0, sizeof(*entry));
+        memcpy(entry->d_name, name, length);
+        entry->d_type = VNODE_FILE;
+        entry->d_ino = (uint32_t)(i + 1u);
+        entry->d_off = (uint32_t)(index + 1u);
+        entry->d_reclen = (uint16_t)sizeof(*entry);
+        result = 1;
+        break;
+    }
+    spinlock_unlock(&g_tmpfs_lock);
+    return result;
+}
+
 int tmpfs_owns(const char* path) {
     if (!path) return 0;
     return strcmp(path, "/tmp") == 0 ||

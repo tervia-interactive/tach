@@ -136,6 +136,7 @@ struct process* process_create(const char* name) {
         proc->uid = 0;
         proc->gid = 0;
         proc->refcount = 1;
+        proc->cwd[0] = '/'; /* memset acima ja zerou o resto */
         process_attach_stdio(proc);
         spinlock_unlock(&g_process_lock);
         return proc;
@@ -282,6 +283,7 @@ struct process* process_fork(struct process* parent) {
     memcpy(child->signal_actions, parent->signal_actions,
            sizeof(child->signal_actions));
     child->signal_blocked = parent->signal_blocked;
+    memcpy(child->cwd, parent->cwd, sizeof(child->cwd));
     child->state = PROCESS_STATE_RUNNING;
     scheduler_add(child);
     return child;

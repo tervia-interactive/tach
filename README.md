@@ -215,6 +215,12 @@ tach/
 - Anonymous pipes (`pipe`), `dup`/`dup2`, `lseek` on regular files, `getppid`
   and `getuid`; pipe ends are counted per descriptor, so EOF and `EPIPE`
   work across `fork` and process exit
+- Real directories: `/`, `/bin`, `/sbin`, `/dev`, `/proc`, `/proc/self` and any
+  initrd path prefix exist as directories, listed with `getdents`; `stat` /
+  `fstat` report type, mode and size (fixed 32-byte ABI layout)
+- Per-process working directory (`chdir`, `getcwd`), inherited across `fork`
+  and `execve`; relative paths, `.` and `..` are resolved in the kernel for
+  `open`, `unlink`, `execve`, `stat` and `chdir`
 - Read-only shared fork mappings with first-write page-fault separation
 - Freestanding `_start`/crt0 and a minimal libc with syscall wrappers,
   string routines, and a `brk`-backed allocator

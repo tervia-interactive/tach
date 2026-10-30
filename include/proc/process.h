@@ -21,6 +21,7 @@ struct vmm_context;
 
 #define MAX_PROCESS_NAME 64
 #define MAX_OPEN_FILES 256
+#define MAX_CWD 128
 #define MAX_PROCESSES 32
 #define PROCESS_USER_STACK_TOP ((uintptr_t)0x000000007ff00000ULL)
 #define PROCESS_USER_STACK_MAX (8u * 1024u * 1024u)
@@ -64,6 +65,7 @@ struct process {
     uint32_t signal_pending;
     uint32_t signal_blocked;
     uintptr_t signal_fault_address;
+    char cwd[MAX_CWD]; /* diretorio de trabalho: absoluto e normalizado */
 };
 
 void process_init(void);

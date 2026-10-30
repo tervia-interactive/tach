@@ -16,6 +16,7 @@ typedef long off_t;
 #define SYS_WAITPID 7
 #define SYS_UNLINK 10
 #define SYS_EXECVE 11
+#define SYS_CHDIR 12
 #define SYS_BRK 17
 #define SYS_LSEEK 19
 #define SYS_GETPID 20
@@ -26,6 +27,10 @@ typedef long off_t;
 #define SYS_PIPE 42
 #define SYS_DUP2 63
 #define SYS_GETPPID 64
+#define SYS_STAT 106
+#define SYS_FSTAT 108
+#define SYS_GETDENTS 141
+#define SYS_GETCWD 183
 #define SYS_MMAP 90
 #define SYS_MUNMAP 91
 
@@ -74,6 +79,47 @@ struct sigaction {
     int sa_flags;
 };
 
+/* stat/fstat: layout identico a struct tach_stat do kernel (fs/stat.h),
+ * 32 bytes em i686 e x86_64. */
+struct stat {
+    unsigned int st_ino;
+    unsigned int st_mode;
+    unsigned int st_nlink;
+    unsigned int st_uid;
+    unsigned int st_gid;
+    unsigned int st_reserved;
+    unsigned long long st_size;
+};
+
+#define S_IFMT 0170000u
+#define S_IFLNK 0120000u
+#define S_IFREG 0100000u
+#define S_IFBLK 0060000u
+#define S_IFDIR 0040000u
+#define S_IFCHR 0020000u
+#define S_IFIFO 0010000u
+#define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
+#define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
+#define S_ISCHR(mode) (((mode) & S_IFMT) == S_IFCHR)
+#define S_ISFIFO(mode) (((mode) & S_IFMT) == S_IFIFO)
+
+/* getdents: registros de tamanho fixo (268 bytes), identicos a struct dirent
+ * do kernel (fs/vfs.h). d_type usa os valores DT_* abaixo (= VNODE_*). */
+struct dirent {
+    unsigned int d_ino;
+    unsigned int d_off;
+    unsigned short d_reclen;
+    unsigned char d_type;
+    char d_name[256];
+};
+
+#define DT_REG 1
+#define DT_DIR 2
+#define DT_LNK 3
+#define DT_CHR 4
+#define DT_BLK 5
+#define DT_FIFO 6
+
 /* mmap: o kernel so atende mapeamentos anonimos (flags/fd/offset ignorados). */
 #define PROT_NONE 0
 #define PROT_READ 1
@@ -104,6 +150,14 @@ void* mmap(void* address, size_t length, int protection, int flags,
            int fd, off_t offset);
 int munmap(void* address, size_t length);
 off_t lseek(int fd, off_t offset, int whence);
+int stat(const char* path, struct stat* info);
+int fstat(int fd, struct stat* info);
+/* Le ate count/sizeof(struct dirent) registros; devolve bytes lidos, 0 no fim
+ * do diretorio ou -errno. */
+ssize_t getdents(int fd, struct dirent* entries, size_t count);
+int chdir(const char* path);
+/* Devolve `buffer` (ou NULL se size nao comportar o cwd). */
+char* getcwd(char* buffer, size_t size);
 void* brk(void* address);
 void* malloc(size_t size);
 void free(void* pointer);

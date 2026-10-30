@@ -75,57 +75,14 @@ static int parse_small_int(const char* text, int fallback) {
     return negative ? -value : value;
 }
 
-/* Normaliza um caminho absoluto: colapsa barras repetidas, remove "." e
- * barra final, e resolve ".." (a raiz e seu proprio pai). `output` recebe
- * sempre um caminho absoluto sem barra final, exceto "/". -1 se nao couber
- * em `capacity`. `input` e `output` nao podem se sobrepor. */
-static int normalize_path(const char* input, char* output, size_t capacity) {
-    if (capacity < 2 || input[0] != '/') return -1;
-    output[0] = '/';
-    size_t length = 1;
-    const char* cursor = input;
-    while (*cursor) {
-        while (*cursor == '/') cursor++;
-        if (!*cursor) break;
-        const char* start = cursor;
-        while (*cursor && *cursor != '/') cursor++;
-        size_t part = (size_t)(cursor - start);
-
-        if (part == 1 && start[0] == '.') continue;
-        if (part == 2 && start[0] == '.' && start[1] == '.') {
-            while (length > 1 && output[length - 1] != '/') length--;
-            if (length > 1) length--; /* remove a barra que antecede o componente */
-            continue;
-        }
-
-        size_t separator = length > 1 ? 1 : 0;
-        if (length + separator + part + 1 > capacity) return -1;
-        if (separator) output[length++] = '/';
-        memcpy(output + length, start, part);
-        length += part;
+/* O diretorio de trabalho vive no kernel (chdir/getcwd) e os caminhos
+ * relativos, "." e ".." sao resolvidos por ele em open/unlink/execve/stat;
+ * g_cwd e so uma copia para o prompt e o pwd. */
+static void refresh_cwd(void) {
+    if (!getcwd(g_cwd, sizeof(g_cwd))) {
+        g_cwd[0] = '/';
+        g_cwd[1] = 0;
     }
-    output[length] = 0;
-    return 0;
-}
-
-/* Caminho absoluto e normalizado a partir de um caminho possivelmente
- * relativo ao cwd logico (trata ".", ".." e barras repetidas). -1 se nao
- * couber em `capacity`. */
-static int resolve_path(const char* path, char* out, size_t capacity) {
-    static char joined[PATH_LEN + LINE_LEN + 2]; /* estatico: pilha de 1 pagina */
-    size_t used = 0;
-    if (path[0] != '/') {
-        size_t cwd_length = strlen(g_cwd);
-        if (cwd_length + 1 >= sizeof(joined)) return -1;
-        memcpy(joined, g_cwd, cwd_length);
-        used = cwd_length;
-        if (used > 1) joined[used++] = '/';
-    }
-    size_t length = strlen(path);
-    if (used + length >= sizeof(joined)) return -1;
-    memcpy(joined + used, path, length);
-    joined[used + length] = 0;
-    return normalize_path(joined, out, capacity);
 }
 
 /* ---------------------------------------------------------- arquivos */
@@ -145,13 +102,18 @@ static int slurp(const char* path) {
     return (int)total;
 }
 
-/* Copia o arquivo para stdout. -1 se nao abre. */
+/* Copia o arquivo para stdout. -1 se nao abre, -2 se a leitura falha (por
+ * exemplo, um diretorio). */
 static int cat_file(const char* path) {
     int fd = open(path, 0);
     if (fd < 0) return -1;
     for (;;) {
         ssize_t n = read(fd, g_file, FILE_LEN);
-        if (n <= 0) break;
+        if (n < 0) {
+            (void)close(fd);
+            return -2;
+        }
+        if (n == 0) break;
         (void)write(1, g_file, (size_t)n);
     }
     (void)close(fd);
@@ -321,12 +283,6 @@ static int parse_line(char* line, char** argv, int capacity) {
 
 /* ----------------------------------------------------------- comandos */
 
-static int is_dir(const char* path) {
-    return strcmp(path, "/") == 0 || strcmp(path, "/dev") == 0 ||
-           strcmp(path, "/proc") == 0 || strcmp(path, "/sbin") == 0 ||
-           strcmp(path, "/bin") == 0 || strcmp(path, "/tmp") == 0;
-}
-
 static void command_help(void) {
     out("Built-in commands:\n"
         "  help                 show this command list\n"
@@ -336,8 +292,8 @@ static void command_help(void) {
         "  ps                   list processes\n"
         "  id | whoami          show current identity\n"
         "  pid                  show this shell's pid\n"
-        "  pwd | cd [path]      inspect or change directory (. and .. work)\n"
-        "  ls [path]            list the root filesystem\n"
+        "  pwd | cd [path]      show or change the working directory\n"
+        "  ls [-l] [path]       list a directory (-l: mode and size)\n"
         "  cat <file>...        print files (/proc/version, /proc/meminfo, ...)\n"
         "  history              show command history\n"
         "  kill [-sig] <pid>... send a signal (default SIGTERM)\n"
@@ -379,55 +335,97 @@ static void command_history(void) {
     }
 }
 
-static int command_ls(const char* argument) {
-    char resolved[PATH_LEN];
-    const char* path = resolved;
-    if (resolve_path(argument, resolved, sizeof(resolved)) < 0) {
-        err("ls: "); err(argument); err(": path too long\n");
+static struct dirent g_dents[4];
+static struct stat g_stat;
+static char g_full[LINE_LEN + 256 + 2];
+
+static void mode_string(unsigned int mode, char* text) {
+    static const char bits[] = "rwxrwxrwx";
+    text[0] = S_ISDIR(mode) ? 'd' : S_ISCHR(mode) ? 'c'
+              : S_ISFIFO(mode) ? 'p' : '-';
+    for (unsigned i = 0; i < 9; i++)
+        text[1 + i] = (mode & (0400u >> i)) ? bits[i] : '-';
+    text[10] = 0;
+}
+
+static void ls_print(const char* name, unsigned int mode,
+                     unsigned long size, int long_format) {
+    if (long_format) {
+        char text[11];
+        mode_string(mode, text);
+        out(text);
+        out(" ");
+        out_ulong(size, 8);
+        out(" ");
+    }
+    out(name);
+    if (S_ISDIR(mode)) out("/");
+    out("\n");
+}
+
+/* ls [-l] [caminho]: lista o diretorio com getdents; para um arquivo comum,
+ * mostra so ele. -l acrescenta modo e tamanho (via stat). */
+static int command_ls(int argc, char** argv) {
+    int long_format = 0;
+    const char* target = ".";
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] == '-' && argv[i][1]) {
+            for (const char* flag = argv[i] + 1; *flag; flag++) {
+                if (*flag != 'l') {
+                    err("ls: invalid option: "); err(argv[i]); err("\n");
+                    return 2;
+                }
+                long_format = 1;
+            }
+        } else {
+            target = argv[i];
+        }
+    }
+
+    int fd = open(target, O_RDONLY);
+    if (fd < 0) {
+        err("ls: "); err(target); err(": no such file or directory\n");
         return 1;
     }
-    if (strcmp(path, "/") == 0) {
-        out("bin/\ndev/\nproc/\nsbin/\ntmp/\n");
-    } else if (strcmp(path, "/bin") == 0) {
-        out("sh\n");
-    } else if (strcmp(path, "/dev") == 0) {
-        out("console\ntty\n");
-    } else if (strcmp(path, "/sbin") == 0) {
-        out("init\n");
-    } else if (strcmp(path, "/tmp") == 0) {
-        if (cat_file("/tmp") < 0) { /* ler /tmp lista os arquivos */
-            err("ls: /tmp unavailable\n");
-            return 1;
-        }
-    } else if (strcmp(path, "/proc") == 0) {
-        out("version\nmeminfo\nuname\nps\nsyscalls\nself/\n");
-        if (slurp("/proc/ps") > 0) { /* um diretorio por PID vivo */
-            const char* line = g_file;
-            int header = 1;
-            while (*line) {
-                if (!header && *line != '\n') {
-                    const char* p = line + 1; /* pula o marcador '*' */
-                    unsigned long pid = 0;
-                    int digits = 0;
-                    while (*p == ' ') p++;
-                    while (*p >= '0' && *p <= '9') {
-                        pid = pid * 10 + (unsigned long)(*p++ - '0');
-                        digits = 1;
-                    }
-                    if (digits) {
-                        out_ulong(pid, 0);
-                        out("/\n");
+    if (fstat(fd, &g_stat) < 0) {
+        (void)close(fd);
+        err("ls: "); err(target); err(": cannot stat\n");
+        return 1;
+    }
+    if (!S_ISDIR(g_stat.st_mode)) {
+        ls_print(target, g_stat.st_mode, (unsigned long)g_stat.st_size,
+                 long_format);
+        (void)close(fd);
+        return 0;
+    }
+
+    size_t target_length = strlen(target);
+    for (;;) {
+        ssize_t bytes = getdents(fd, g_dents, sizeof(g_dents));
+        if (bytes <= 0) break;
+        size_t count = (size_t)bytes / sizeof(struct dirent);
+        for (size_t i = 0; i < count; i++) {
+            const struct dirent* entry = &g_dents[i];
+            unsigned int mode = entry->d_type == DT_DIR ? S_IFDIR
+                                : entry->d_type == DT_CHR ? S_IFCHR : S_IFREG;
+            unsigned long size = 0;
+            if (long_format) {
+                size_t name_length = strlen(entry->d_name);
+                if (target_length + 1 + name_length < sizeof(g_full)) {
+                    memcpy(g_full, target, target_length);
+                    g_full[target_length] = '/';
+                    memcpy(g_full + target_length + 1, entry->d_name,
+                           name_length + 1);
+                    if (stat(g_full, &g_stat) == 0) {
+                        mode = g_stat.st_mode;
+                        size = (unsigned long)g_stat.st_size;
                     }
                 }
-                header = 0;
-                while (*line && *line != '\n') line++;
-                if (*line) line++;
             }
+            ls_print(entry->d_name, mode, size, long_format);
         }
-    } else {
-        err("ls: "); err(argument); err(": no such directory\n");
-        return 1;
     }
+    (void)close(fd);
     return 0;
 }
 
@@ -438,10 +436,12 @@ static int command_cat(int argc, char** argv) {
     }
     int status = 0;
     for (int i = 1; i < argc; i++) {
-        char path[PATH_LEN];
-        if (resolve_path(argv[i], path, sizeof(path)) < 0 ||
-            cat_file(path) < 0) {
+        int result = cat_file(argv[i]);
+        if (result == -1) {
             err("cat: "); err(argv[i]); err(": no such file\n");
+            status = 1;
+        } else if (result < 0) {
+            err("cat: "); err(argv[i]); err(": cannot read (directory?)\n");
             status = 1;
         }
     }
@@ -449,18 +449,13 @@ static int command_cat(int argc, char** argv) {
 }
 
 static int command_cd(const char* path) {
-    char resolved[PATH_LEN];
-    if (resolve_path(path, resolved, sizeof(resolved)) < 0 ||
-        !is_dir(resolved)) {
-        err("cd: "); err(path); err(": no such directory\n");
+    int result = chdir(path);
+    if (result < 0) {
+        err("cd: "); err(path);
+        err(result == -20 ? ": not a directory\n" : ": no such directory\n");
         return 1;
     }
-    size_t i = 0;
-    while (resolved[i] && i + 1 < sizeof(g_cwd)) {
-        g_cwd[i] = resolved[i];
-        i++;
-    }
-    g_cwd[i] = 0;
+    refresh_cwd();
     return 0;
 }
 
@@ -507,10 +502,7 @@ static int command_touch(int argc, char** argv) {
     }
     int status = 0;
     for (int i = 1; i < argc; i++) {
-        char path[PATH_LEN];
-        int fd = -1;
-        if (resolve_path(argv[i], path, sizeof(path)) == 0)
-            fd = open(path, O_WRONLY | O_CREAT);
+        int fd = open(argv[i], O_WRONLY | O_CREAT);
         if (fd < 0) {
             err("touch: cannot create "); err(argv[i]); err("\n");
             status = 1;
@@ -528,10 +520,7 @@ static int command_rm(int argc, char** argv) {
     }
     int status = 0;
     for (int i = 1; i < argc; i++) {
-        char path[PATH_LEN];
-        int result = -1;
-        if (resolve_path(argv[i], path, sizeof(path)) == 0)
-            result = unlink(path);
+        int result = unlink(argv[i]);
         if (result < 0) {
             err("rm: cannot remove "); err(argv[i]);
             if (result == -16) err(": file is in use\n");
@@ -608,7 +597,7 @@ static int run_command(int argc, char** argv) {
     } else if (strcmp(cmd, "cd") == 0) {
         return command_cd(argc > 1 ? argv[1] : "/");
     } else if (strcmp(cmd, "ls") == 0) {
-        return command_ls(argc > 1 ? argv[1] : g_cwd);
+        return command_ls(argc, argv);
     } else if (strcmp(cmd, "cat") == 0) {
         return command_cat(argc, argv);
     } else if (strcmp(cmd, "history") == 0) {
@@ -654,11 +643,7 @@ static int run_line(int argc, char** argv) {
         return 2;
     }
     int append = argv[redirect][1] != 0;
-    char path[PATH_LEN];
-    if (resolve_path(argv[redirect + 1], path, sizeof(path)) < 0) {
-        err("sh: path too long\n");
-        return 1;
-    }
+    const char* path = argv[redirect + 1];
     int fd = open(path, O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC));
     if (fd < 0) {
         err("sh: cannot open "); err(path); err(" for writing\n");
@@ -683,8 +668,7 @@ int main(void) {
     g_hist_count = 0;
     g_hist_head = 0;
     g_last_status = 0;
-    g_cwd[0] = '/';
-    g_cwd[1] = 0;
+    refresh_cwd();
 
     out("tach userspace shell\nType 'help' for commands.\n");
     char line[LINE_LEN];

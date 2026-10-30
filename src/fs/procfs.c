@@ -179,3 +179,9 @@ struct vnode* procfs_lookup(const char* path) {
         if (strcmp(path, g_table[i].path) == 0) return &g_vnodes[i];
     return NULL;
 }
+
+size_t procfs_count(void) { return PROCFS_FILE_COUNT; }
+
+const char* procfs_path(size_t index) {
+    return index < PROCFS_FILE_COUNT ? g_table[index].path : NULL;
+}

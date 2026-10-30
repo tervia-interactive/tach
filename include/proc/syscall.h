@@ -33,6 +33,10 @@
 #define SYS_GETUID      24
 #define SYS_PTRACE      26
 #define SYS_SIGACTION   27
+#define SYS_STAT        106
+#define SYS_FSTAT       108
+#define SYS_GETDENTS    141
+#define SYS_GETCWD      183
 #define SYS_MMAP        90
 #define SYS_MUNMAP      91
 #define SYS_KILL        37
@@ -45,7 +49,7 @@
 #define SEEK_CUR        1
 #define SEEK_END        2
 
-#define SYSCALL_TABLE_SIZE 128
+#define SYSCALL_TABLE_SIZE 256
 
 typedef long (*syscall_handler_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 

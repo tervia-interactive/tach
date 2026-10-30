@@ -47,6 +47,16 @@ static int copy_path_from_caller(struct process* process, char* destination,
     return 0;
 }
 
+/* Copia o caminho do chamador e o resolve contra o cwd do processo. */
+static int fetch_path(struct process* process, uint64_t user_path,
+                      char* resolved, size_t capacity) {
+    char raw[256];
+    int result = copy_path_from_caller(process, raw, sizeof(raw),
+                                       (const char*)(uintptr_t)user_path);
+    if (result < 0) return result;
+    return vfs_resolve_path(process->cwd, raw, resolved, capacity);
+}
+
 static long sys_exit(uint64_t code, uint64_t unused2, uint64_t unused3,
                      uint64_t unused4, uint64_t unused5, uint64_t unused6) {
     (void)unused2; (void)unused3; (void)unused4; (void)unused5; (void)unused6;
@@ -136,8 +146,7 @@ static long sys_open(uint64_t path, uint64_t flags, uint64_t unused3,
         return -EFAULT;
     }
     char local_path[256];
-    int copied = copy_path_from_caller(proc, local_path, sizeof(local_path),
-                                       (const char*)(uintptr_t)path);
+    int copied = fetch_path(proc, path, local_path, sizeof(local_path));
     if (copied < 0) return copied;
     int open_error = -ENOENT;
     struct vnode* vnode = vfs_open_err(local_path, (int)flags, &open_error);
@@ -159,8 +168,7 @@ static long sys_unlink(uint64_t path, uint64_t unused2, uint64_t unused3,
     if (proc->user_mode && !is_valid_user_range((const void*)(uintptr_t)path, 1))
         return -EFAULT;
     char local_path[256];
-    int copied = copy_path_from_caller(proc, local_path, sizeof(local_path),
-                                       (const char*)(uintptr_t)path);
+    int copied = fetch_path(proc, path, local_path, sizeof(local_path));
     if (copied < 0) return copied;
     return vfs_unlink(local_path);
 }
@@ -204,8 +212,7 @@ static long sys_execve(uint64_t path, uint64_t argv, uint64_t envp,
     if (!process || !path) return -EFAULT;
     if (process->user_mode && !is_valid_user_range((const void*)(uintptr_t)path, 1)) return -EFAULT;
     char local_path[256];
-    int copied = copy_path_from_caller(process, local_path,
-        sizeof(local_path), (const char*)(uintptr_t)path);
+    int copied = fetch_path(process, path, local_path, sizeof(local_path));
     if (copied < 0) return copied;
     const void* image;
     size_t size;
@@ -468,6 +475,122 @@ static long sys_pipe(uint64_t fds_pointer, uint64_t unused2, uint64_t unused3,
     return 0;
 }
 
+/* Valida (so em modo usuario) que [pointer, pointer + size) e do chamador. */
+static int check_user_buffer(struct process* process, uint64_t pointer,
+                             size_t size) {
+    if (!pointer) return -EFAULT;
+    if (process->user_mode &&
+        !is_valid_user_range((const void*)(uintptr_t)pointer, size))
+        return -EFAULT;
+    return 0;
+}
+
+static long sys_stat(uint64_t path, uint64_t buffer, uint64_t unused3,
+                     uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused3; (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc) return -ESRCH;
+    int result = check_user_buffer(proc, path, 1);
+    if (result < 0) return result;
+    result = check_user_buffer(proc, buffer, sizeof(struct tach_stat));
+    if (result < 0) return result;
+    char resolved[256];
+    result = fetch_path(proc, path, resolved, sizeof(resolved));
+    if (result < 0) return result;
+    struct tach_stat info;
+    result = vfs_stat(resolved, &info);
+    if (result < 0) return result;
+    return copy_to_caller(proc, (void*)(uintptr_t)buffer, &info, sizeof(info));
+}
+
+static long sys_fstat(uint64_t fd, uint64_t buffer, uint64_t unused3,
+                      uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused3; (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc) return -ESRCH;
+    int result = check_user_buffer(proc, buffer, sizeof(struct tach_stat));
+    if (result < 0) return result;
+    struct fd_entry* entry = fd_get(proc->fds, (int)fd);
+    if (!entry) return -EBADF;
+    struct tach_stat info;
+    result = vfs_stat_vnode(entry->vnode, &info);
+    if (result < 0) return result;
+    return copy_to_caller(proc, (void*)(uintptr_t)buffer, &info, sizeof(info));
+}
+
+/* Preenche `buffer` com registros `struct dirent` de tamanho fixo. A posicao
+ * de leitura e o indice da proxima entrada, guardado em entry->offset do
+ * descritor. Devolve o total de bytes escritos (0 = fim do diretorio). */
+#define GETDENTS_MAX_PER_CALL 64u
+
+static long sys_getdents(uint64_t fd, uint64_t buffer, uint64_t count,
+                         uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc) return -ESRCH;
+    if (count < sizeof(struct dirent)) return -EINVAL;
+    size_t capacity = (size_t)(count / sizeof(struct dirent));
+    if (capacity > GETDENTS_MAX_PER_CALL) capacity = GETDENTS_MAX_PER_CALL;
+    int result = check_user_buffer(proc, buffer, capacity * sizeof(struct dirent));
+    if (result < 0) return result;
+    struct fd_entry* entry = fd_get(proc->fds, (int)fd);
+    if (!entry) return -EBADF;
+    if (entry->vnode->type != VNODE_DIR) return -ENOTDIR;
+
+    size_t written = 0;
+    while (written < capacity) {
+        struct dirent item;
+        int more = vfs_readdir(entry->vnode, (size_t)entry->offset, &item);
+        if (more < 0) return written ? (long)(written * sizeof(item)) : more;
+        if (more == 0) break;
+        if (copy_to_caller(proc,
+                (uint8_t*)(uintptr_t)buffer + written * sizeof(item),
+                &item, sizeof(item)) < 0)
+            return -EFAULT;
+        entry->offset++;
+        written++;
+    }
+    return (long)(written * sizeof(struct dirent));
+}
+
+static long sys_chdir(uint64_t path, uint64_t unused2, uint64_t unused3,
+                      uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused2; (void)unused3; (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc) return -ESRCH;
+    int result = check_user_buffer(proc, path, 1);
+    if (result < 0) return result;
+    char resolved[256];
+    result = fetch_path(proc, path, resolved, sizeof(resolved));
+    if (result < 0) return result;
+    size_t length = strlen(resolved);
+    if (length >= sizeof(proc->cwd)) return -ENAMETOOLONG;
+
+    int error = -ENOENT;
+    struct vnode* vnode = vfs_open_err(resolved, O_RDONLY, &error);
+    if (!vnode) return error < 0 ? error : -ENOENT;
+    bool is_dir = vnode->type == VNODE_DIR;
+    vfs_release(vnode);
+    if (!is_dir) return -ENOTDIR;
+    memcpy(proc->cwd, resolved, length + 1);
+    return 0;
+}
+
+/* Como o getcwd cru do Linux: copia o cwd com o NUL e devolve o tamanho
+ * (incluindo o NUL), ou -ERANGE se `size` nao comportar. */
+static long sys_getcwd(uint64_t buffer, uint64_t size, uint64_t unused3,
+                       uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused3; (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc) return -ESRCH;
+    size_t length = strlen(proc->cwd) + 1;
+    if (size < length) return -ERANGE;
+    int result = check_user_buffer(proc, buffer, length);
+    if (result < 0) return result;
+    result = copy_to_caller(proc, (void*)(uintptr_t)buffer, proc->cwd, length);
+    return result < 0 ? result : (long)length;
+}
+
 void syscall_init(void) {
     memset(g_syscalls, 0, sizeof(g_syscalls));
     syscall_register(SYS_EXIT, sys_exit);
@@ -491,6 +614,11 @@ void syscall_init(void) {
     syscall_register(SYS_DUP, sys_dup);
     syscall_register(SYS_DUP2, sys_dup2);
     syscall_register(SYS_PIPE, sys_pipe);
+    syscall_register(SYS_STAT, sys_stat);
+    syscall_register(SYS_FSTAT, sys_fstat);
+    syscall_register(SYS_GETDENTS, sys_getdents);
+    syscall_register(SYS_CHDIR, sys_chdir);
+    syscall_register(SYS_GETCWD, sys_getcwd);
 }
 
 long syscall_dispatch(int num, uint64_t arg1, uint64_t arg2, uint64_t arg3,
@@ -530,6 +658,11 @@ const char* syscall_name(int num) {
         case SYS_DUP: return "dup";
         case SYS_DUP2: return "dup2";
         case SYS_PIPE: return "pipe";
+        case SYS_STAT: return "stat";
+        case SYS_FSTAT: return "fstat";
+        case SYS_GETDENTS: return "getdents";
+        case SYS_CHDIR: return "chdir";
+        case SYS_GETCWD: return "getcwd";
         default: return NULL;
     }
 }

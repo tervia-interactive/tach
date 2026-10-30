@@ -14,4 +14,9 @@ struct vnode* procfs_create_process_entry(pid_t pid, const char* name);
 /* Vnode de um arquivo /proc gerado sob demanda; NULL se o caminho nao existe. */
 struct vnode* procfs_lookup(const char* path);
 
+/* Enumeracao dos arquivos /proc (caminhos absolutos), usada para montar a
+ * listagem dos diretorios /proc e /proc/self. */
+size_t procfs_count(void);
+const char* procfs_path(size_t index);
+
 #endif /* _FS_PROCFS_H */

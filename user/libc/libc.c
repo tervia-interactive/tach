@@ -61,6 +61,23 @@ int dup2(int old_fd, int new_fd) {
 off_t lseek(int fd, off_t offset, int whence) {
     return (off_t)raw_syscall(SYS_LSEEK, fd, (long)offset, whence, 0, 0, 0);
 }
+int stat(const char* path, struct stat* info) {
+    return (int)raw_syscall(SYS_STAT, (long)path, (long)info, 0, 0, 0, 0);
+}
+int fstat(int fd, struct stat* info) {
+    return (int)raw_syscall(SYS_FSTAT, fd, (long)info, 0, 0, 0, 0);
+}
+ssize_t getdents(int fd, struct dirent* entries, size_t count) {
+    return (ssize_t)raw_syscall(SYS_GETDENTS, fd, (long)entries, (long)count,
+                                0, 0, 0);
+}
+int chdir(const char* path) {
+    return (int)raw_syscall(SYS_CHDIR, (long)path, 0, 0, 0, 0, 0);
+}
+char* getcwd(char* buffer, size_t size) {
+    long result = raw_syscall(SYS_GETCWD, (long)buffer, (long)size, 0, 0, 0, 0);
+    return result < 0 ? (char*)0 : buffer;
+}
 int kill(pid_t pid, int sig) {
     return (int)raw_syscall(SYS_KILL, pid, sig, 0, 0, 0, 0);
 }
