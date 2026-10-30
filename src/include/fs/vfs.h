@@ -60,9 +60,6 @@ void vfs_init(void);
 struct vnode* vfs_root(void);
 int vfs_mount(const char* path, struct vnode* root);
 struct vnode* vfs_open(const char* path, int flags);
-/* Como vfs_open, mas grava em *error o -errno da falha (ENOENT, ENOSPC...). */
-struct vnode* vfs_open_err(const char* path, int flags, int* error);
-int vfs_unlink(const char* path);
 int vfs_close(struct vnode* vn);
 ssize_t vfs_read(struct vnode* vn, void* buf, size_t count, int64_t offset);
 ssize_t vfs_write(struct vnode* vn, const void* buf, size_t count, int64_t offset);

@@ -71,7 +71,13 @@ test-host:
 		src/drivers/char/serial_8250.c src/drivers/video/vga_text.c src/drivers/input/keyboard_ps2.c \
 		-o src/build/host/watchdog-test
 	@src/build/host/watchdog-test
-	@echo "Host userspace, PMM, VMM/ELF/fault, heap/slab, timer wheel, watchdog, preemption, process, signal, and semaphore tests passed."
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
+		tests/host/tmpfs_test.c src/fs/tmpfs.c src/fs/vfs.c src/lib/string.c src/lib/printf.c src/kernel/klog.c \
+		src/mm/kheap.c src/mm/slab.c src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/io.c \
+		src/hal/console.c src/hal/host_stubs.c src/drivers/char/serial_8250.c src/drivers/video/vga_text.c \
+		src/drivers/input/keyboard_ps2.c -o src/build/host/tmpfs-test
+	@src/build/host/tmpfs-test
+	@echo "Host userspace, PMM, VMM/ELF/fault, heap/slab, timer wheel, watchdog, preemption, process, signal, semaphore, and tmpfs tests passed."
 
 clean:
 	rm -rf src/build/
