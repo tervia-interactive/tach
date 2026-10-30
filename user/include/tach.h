@@ -14,6 +14,7 @@ typedef long off_t;
 #define SYS_OPEN 5
 #define SYS_CLOSE 6
 #define SYS_WAITPID 7
+#define SYS_UNLINK 10
 #define SYS_EXECVE 11
 #define SYS_BRK 17
 #define SYS_LSEEK 19
@@ -31,6 +32,14 @@ typedef long off_t;
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
+
+/* Flags de open() (mesmos valores de fs/vfs.h). */
+#define O_RDONLY 0x0000
+#define O_WRONLY 0x0001
+#define O_RDWR 0x0002
+#define O_APPEND 0x0008
+#define O_CREAT 0x0200
+#define O_TRUNC 0x0400
 
 #ifndef NULL
 #define NULL ((void*)0)
@@ -78,6 +87,7 @@ ssize_t read(int fd, void* buffer, size_t count);
 ssize_t write(int fd, const void* buffer, size_t count);
 int open(const char* path, int flags);
 int close(int fd);
+int unlink(const char* path);
 pid_t fork(void);
 int execve(const char* path, char* const argv[], char* const envp[]);
 pid_t waitpid(pid_t pid, int* status, int options);

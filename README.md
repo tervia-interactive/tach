@@ -221,8 +221,10 @@ tach/
 - External `/sbin/init` as PID 1, using `fork`, `execve`, and `waitpid` to
   supervise the ring-3 `/bin/sh`
 - Embedded init/shell retained only as a no-initrd fallback
+- Writable RAM filesystem at `/tmp` (`open` with `O_CREAT`/`O_TRUNC`/`O_APPEND`, `unlink`, up to 32 files of 1 MiB; reading `/tmp` lists its files)
 - `/dev/console` and `/dev/tty` through the VFS character-device interface
 - Interactive EN-US shell with quoting, command status, history, and line editing
+- Shell builtins `kill`, `touch`, `rm` and stdout redirection (`>`, `>>`) into `/tmp`
 - Serial and PS/2 keyboard input with mirrored serial/VGA output
 - ELF32/ELF64 executable validation and `PT_LOAD` segment mapping
 - USTAR initrd import and external ELF execution from the shell (`/bin` searched)

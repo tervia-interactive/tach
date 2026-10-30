@@ -104,6 +104,9 @@ static long sys_write(uint64_t fd, uint64_t buffer, uint64_t count,
     if (!entry || (entry->flags & O_ACCMODE) == O_RDONLY) {
         return -EBADF;
     }
+    /* O_APPEND: cada escrita comeca no fim atual do arquivo. */
+    if ((entry->flags & O_APPEND) && entry->vnode->type == VNODE_FILE)
+        entry->offset = (int64_t)entry->vnode->size;
     uint8_t temporary[256];
     size_t total = 0;
     while (total < (size_t)count) {
@@ -136,15 +139,30 @@ static long sys_open(uint64_t path, uint64_t flags, uint64_t unused3,
     int copied = copy_path_from_caller(proc, local_path, sizeof(local_path),
                                        (const char*)(uintptr_t)path);
     if (copied < 0) return copied;
-    struct vnode* vnode = vfs_open(local_path, (int)flags);
+    int open_error = -ENOENT;
+    struct vnode* vnode = vfs_open_err(local_path, (int)flags, &open_error);
     if (!vnode) {
-        return -ENOENT;
+        return open_error < 0 ? open_error : -ENOENT;
     }
     int fd = fd_alloc(proc->fds, vnode, (int)flags);
     if (fd < 0) {
         vfs_close(vnode);
     }
     return fd;
+}
+
+static long sys_unlink(uint64_t path, uint64_t unused2, uint64_t unused3,
+                       uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused2; (void)unused3; (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc || !path) return -EFAULT;
+    if (proc->user_mode && !is_valid_user_range((const void*)(uintptr_t)path, 1))
+        return -EFAULT;
+    char local_path[256];
+    int copied = copy_path_from_caller(proc, local_path, sizeof(local_path),
+                                       (const char*)(uintptr_t)path);
+    if (copied < 0) return copied;
+    return vfs_unlink(local_path);
 }
 
 static long sys_close(uint64_t fd, uint64_t unused2, uint64_t unused3,
@@ -457,6 +475,7 @@ void syscall_init(void) {
     syscall_register(SYS_WRITE, sys_write);
     syscall_register(SYS_OPEN, sys_open);
     syscall_register(SYS_CLOSE, sys_close);
+    syscall_register(SYS_UNLINK, sys_unlink);
     syscall_register(SYS_GETPID, sys_getpid);
     syscall_register(SYS_FORK, sys_fork);
     syscall_register(SYS_EXECVE, sys_execve);
@@ -495,6 +514,7 @@ const char* syscall_name(int num) {
         case SYS_WRITE: return "write";
         case SYS_OPEN: return "open";
         case SYS_CLOSE: return "close";
+        case SYS_UNLINK: return "unlink";
         case SYS_GETPID: return "getpid";
         case SYS_FORK: return "fork";
         case SYS_EXECVE: return "execve";

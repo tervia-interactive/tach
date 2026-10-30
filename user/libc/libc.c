@@ -39,6 +39,9 @@ int open(const char* path, int flags) {
     return (int)raw_syscall(SYS_OPEN, (long)path, flags, 0, 0, 0, 0);
 }
 int close(int fd) { return (int)raw_syscall(SYS_CLOSE, fd, 0, 0, 0, 0, 0); }
+int unlink(const char* path) {
+    return (int)raw_syscall(SYS_UNLINK, (long)path, 0, 0, 0, 0, 0);
+}
 pid_t fork(void) { return (pid_t)raw_syscall(SYS_FORK, 0, 0, 0, 0, 0, 0); }
 int execve(const char* path, char* const argv[], char* const envp[]) {
     return (int)raw_syscall(SYS_EXECVE, (long)path, (long)argv,

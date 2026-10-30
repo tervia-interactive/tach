@@ -75,6 +75,24 @@ static int parse_small_int(const char* text, int fallback) {
     return negative ? -value : value;
 }
 
+/* Caminho absoluto a partir de um caminho possivelmente relativo ao cwd
+ * logico. Nao trata "." / "..". -1 se nao couber em `capacity`. */
+static int resolve_path(const char* path, char* out, size_t capacity) {
+    size_t used = 0;
+    if (path[0] != '/') {
+        size_t cwd_length = strlen(g_cwd);
+        if (cwd_length + 1 >= capacity) return -1;
+        memcpy(out, g_cwd, cwd_length);
+        used = cwd_length;
+        if (used > 1) out[used++] = '/';
+    }
+    size_t length = strlen(path);
+    if (used + length >= capacity) return -1;
+    memcpy(out + used, path, length);
+    out[used + length] = 0;
+    return 0;
+}
+
 /* ---------------------------------------------------------- arquivos */
 
 /* Le o arquivo inteiro (ate FILE_LEN bytes) em g_file. -1 se nao abre. */
@@ -271,7 +289,7 @@ static int parse_line(char* line, char** argv, int capacity) {
 static int is_dir(const char* path) {
     return strcmp(path, "/") == 0 || strcmp(path, "/dev") == 0 ||
            strcmp(path, "/proc") == 0 || strcmp(path, "/sbin") == 0 ||
-           strcmp(path, "/bin") == 0;
+           strcmp(path, "/bin") == 0 || strcmp(path, "/tmp") == 0;
 }
 
 static void command_help(void) {
@@ -288,6 +306,9 @@ static void command_help(void) {
         "  cat <file>...        print files (/proc/version, /proc/meminfo, ...)\n"
         "  history              show command history\n"
         "  kill [-sig] <pid>... send a signal (default SIGTERM)\n"
+        "  touch <file>...      create empty files (only under /tmp)\n"
+        "  rm <file>...         remove files (only under /tmp)\n"
+        "  cmd > file | >> file redirect stdout (file under /tmp)\n"
         "  syscalls             show active syscall ABI entries\n"
         "  status               show the previous command status\n"
         "  true | false         succeed / fail\n"
@@ -325,13 +346,18 @@ static void command_history(void) {
 
 static int command_ls(const char* path) {
     if (strcmp(path, "/") == 0) {
-        out("bin/\ndev/\nproc/\nsbin/\n");
+        out("bin/\ndev/\nproc/\nsbin/\ntmp/\n");
     } else if (strcmp(path, "/bin") == 0) {
         out("sh\n");
     } else if (strcmp(path, "/dev") == 0) {
         out("console\ntty\n");
     } else if (strcmp(path, "/sbin") == 0) {
         out("init\n");
+    } else if (strcmp(path, "/tmp") == 0) {
+        if (cat_file("/tmp") < 0) { /* ler /tmp lista os arquivos */
+            err("ls: /tmp unavailable\n");
+            return 1;
+        }
     } else if (strcmp(path, "/proc") == 0) {
         out("version\nmeminfo\nuname\nps\nsyscalls\nself/\n");
         if (slurp("/proc/ps") > 0) { /* um diretorio por PID vivo */
@@ -371,7 +397,9 @@ static int command_cat(int argc, char** argv) {
     }
     int status = 0;
     for (int i = 1; i < argc; i++) {
-        if (cat_file(argv[i]) < 0) {
+        char path[PATH_LEN];
+        if (resolve_path(argv[i], path, sizeof(path)) < 0 ||
+            cat_file(path) < 0) {
             err("cat: "); err(argv[i]); err(": no such file\n");
             status = 1;
         }
@@ -425,6 +453,49 @@ static int run_external(char** argv) {
     if (waitpid(child, &status, 0) < 0) {
         err("sh: wait failed\n");
         return 1;
+    }
+    return status;
+}
+
+static int command_touch(int argc, char** argv) {
+    if (argc < 2) {
+        err("touch: missing operand\n");
+        return 1;
+    }
+    int status = 0;
+    for (int i = 1; i < argc; i++) {
+        char path[PATH_LEN];
+        int fd = -1;
+        if (resolve_path(argv[i], path, sizeof(path)) == 0)
+            fd = open(path, O_WRONLY | O_CREAT);
+        if (fd < 0) {
+            err("touch: cannot create "); err(argv[i]); err("\n");
+            status = 1;
+            continue;
+        }
+        (void)close(fd);
+    }
+    return status;
+}
+
+static int command_rm(int argc, char** argv) {
+    if (argc < 2) {
+        err("rm: missing operand\n");
+        return 1;
+    }
+    int status = 0;
+    for (int i = 1; i < argc; i++) {
+        char path[PATH_LEN];
+        int result = -1;
+        if (resolve_path(argv[i], path, sizeof(path)) == 0)
+            result = unlink(path);
+        if (result < 0) {
+            err("rm: cannot remove "); err(argv[i]);
+            if (result == -16) err(": file is in use\n");
+            else if (result == -30) err(": read-only file system\n");
+            else err(": no such file\n");
+            status = 1;
+        }
     }
     return status;
 }
@@ -501,6 +572,10 @@ static int run_command(int argc, char** argv) {
         command_history();
     } else if (strcmp(cmd, "kill") == 0) {
         return command_kill(argc, argv);
+    } else if (strcmp(cmd, "touch") == 0) {
+        return command_touch(argc, argv);
+    } else if (strcmp(cmd, "rm") == 0) {
+        return command_rm(argc, argv);
     } else if (strcmp(cmd, "syscalls") == 0) {
         if (cat_file("/proc/syscalls") < 0) {
             err("syscalls: /proc/syscalls unavailable\n");
@@ -520,6 +595,47 @@ static int run_command(int argc, char** argv) {
     return 0;
 }
 
+/* Trata "cmd ... > arquivo" e "cmd ... >> arquivo" (tokens separados por
+ * espaco, redirecao sempre no fim da linha). */
+static int run_line(int argc, char** argv) {
+    int redirect = -1;
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], ">") == 0 || strcmp(argv[i], ">>") == 0) {
+            redirect = i;
+            break;
+        }
+    }
+    if (redirect < 0) return run_command(argc, argv);
+    if (redirect == 0 || redirect + 2 != argc) {
+        err("sh: syntax error near redirection\n");
+        return 2;
+    }
+    int append = argv[redirect][1] != 0;
+    char path[PATH_LEN];
+    if (resolve_path(argv[redirect + 1], path, sizeof(path)) < 0) {
+        err("sh: path too long\n");
+        return 1;
+    }
+    int fd = open(path, O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC));
+    if (fd < 0) {
+        err("sh: cannot open "); err(path); err(" for writing\n");
+        return 1;
+    }
+    int saved = dup(1);
+    if (saved < 0 || dup2(fd, 1) < 0) {
+        err("sh: cannot redirect output\n");
+        (void)close(fd);
+        if (saved >= 0) (void)close(saved);
+        return 1;
+    }
+    (void)close(fd);
+    argv[redirect] = (char*)0;
+    int status = run_command(redirect, argv);
+    (void)dup2(saved, 1);
+    (void)close(saved);
+    return status;
+}
+
 int main(void) {
     g_hist_count = 0;
     g_hist_head = 0;
@@ -536,6 +652,6 @@ int main(void) {
         hist_add(line);
         int argc = parse_line(line, argv, ARGV_MAX);
         if (!argc) continue;
-        g_last_status = run_command(argc, argv);
+        g_last_status = run_line(argc, argv);
     }
 }

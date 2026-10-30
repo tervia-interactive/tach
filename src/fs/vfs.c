@@ -2,6 +2,7 @@
 #include <kernel/string.h>
 #include <fs/vfs.h>
 #include <fs/procfs.h>
+#include <fs/tmpfs.h>
 #include <hal/console.h>
 
 #define VFS_MAX_MEMFILES 64
@@ -16,6 +17,23 @@ static size_t g_memfile_count;
 __attribute__((weak)) struct vnode* procfs_lookup(const char* path) {
     (void)path;
     return NULL;
+}
+
+/* Fallbacks fracos para binarios sem tmpfs.c (host test); o do kernel
+ * define as versoes fortes. */
+__attribute__((weak)) int tmpfs_owns(const char* path) {
+    (void)path;
+    return 0;
+}
+__attribute__((weak)) struct vnode* tmpfs_lookup(const char* path, int flags,
+                                                 int* error) {
+    (void)path; (void)flags;
+    if (error) *error = -ENOENT;
+    return NULL;
+}
+__attribute__((weak)) int tmpfs_unlink(const char* path) {
+    (void)path;
+    return -ENOENT;
 }
 
 static int simple_open(struct vnode* vnode, int flags) {
@@ -85,12 +103,17 @@ int vfs_mount(const char* path, struct vnode* root) {
     return 0;
 }
 
-struct vnode* vfs_open(const char* path, int flags) {
+struct vnode* vfs_open_err(const char* path, int flags, int* error) {
+    if (error) *error = -ENOENT;
     if (!path) return NULL;
     struct vnode* vnode = NULL;
     if (strcmp(path, "/") == 0) vnode = &g_root;
     else if (strcmp(path, "/dev/console") == 0 ||
              strcmp(path, "/dev/tty") == 0) vnode = &g_console;
+    else if (tmpfs_owns(path)) {
+        vnode = tmpfs_lookup(path, flags, error);
+        if (!vnode) return NULL;
+    }
     else if ((vnode = procfs_lookup(path)) == NULL) {
         for (size_t i = 0; i < g_memfile_count; i++) {
             if (strcmp(path, g_memfiles[i].path) == 0) {
@@ -100,10 +123,27 @@ struct vnode* vfs_open(const char* path, int flags) {
         }
     }
     if (!vnode) return NULL;
-    if (vnode->ops && vnode->ops->open && vnode->ops->open(vnode, flags) < 0)
-        return NULL;
+    if (vnode->ops && vnode->ops->open) {
+        int result = vnode->ops->open(vnode, flags);
+        if (result < 0) {
+            if (error) *error = result;
+            return NULL;
+        }
+    }
     vnode->refcount++;
+    if (error) *error = 0;
     return vnode;
+}
+
+struct vnode* vfs_open(const char* path, int flags) {
+    return vfs_open_err(path, flags, NULL);
+}
+
+/* Remove um arquivo. Somente /tmp e gravavel; o resto e somente leitura. */
+int vfs_unlink(const char* path) {
+    if (!path) return -EINVAL;
+    if (tmpfs_owns(path)) return tmpfs_unlink(path);
+    return -EROFS;
 }
 
 int vfs_close(struct vnode* vnode) {
