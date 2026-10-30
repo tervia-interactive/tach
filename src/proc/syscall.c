@@ -529,7 +529,12 @@ static long sys_getdents(uint64_t fd, uint64_t buffer, uint64_t count,
     struct process* proc = process_get_current();
     if (!proc) return -ESRCH;
     if (count < sizeof(struct dirent)) return -EINVAL;
-    size_t capacity = (size_t)(count / sizeof(struct dirent));
+    /* Limita `count` ao maximo util antes de dividir: evita uma divisao de
+     * 64 bits (que no i686 vira __udivdi3, ausente no link freestanding) e o
+     * resultado nunca passa de GETDENTS_MAX_PER_CALL de qualquer forma. */
+    uint64_t max_bytes = (uint64_t)GETDENTS_MAX_PER_CALL * sizeof(struct dirent);
+    uint32_t usable = (uint32_t)(count > max_bytes ? max_bytes : count);
+    size_t capacity = (size_t)(usable / (uint32_t)sizeof(struct dirent));
     if (capacity > GETDENTS_MAX_PER_CALL) capacity = GETDENTS_MAX_PER_CALL;
     int result = check_user_buffer(proc, buffer, capacity * sizeof(struct dirent));
     if (result < 0) return result;
