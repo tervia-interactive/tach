@@ -239,6 +239,19 @@ tach/
 - Demand-grown user stacks and heap pages; invalid user faults become `SIGSEGV`
 - FIFO semaphores that block and wake processes through the scheduler
 
+### Userland utilities (`user/bin`)
+
+External ring-3 programs shipped in the initrd under `/bin` (the shell runs them when no builtin matches):
+
+- text: `head`, `tail`, `wc`, `nl`, `rev`, `tac`, `sort` (`-rnfu`), `uniq` (`-cdui`), `cut` (`-f -d -c -s`), `tr` (`-d -s`, ranges and `[:class:]`), `hexdump`
+- search: `grep` (regex subset `^ $ . * + ? [..] \c`, plus `-i -v -c -n -l -q -F -H -h -e`), `find` (`-name -type -maxdepth`)
+- files: `cp`, `mv`, `tee`, `stat`, `du`, `cat`, `echo`
+- misc: `seq`, `basename`, `dirname`, `free` (from `/proc/meminfo`), `xargs`
+
+The shell supports pipelines (`a | b | c`, up to 4 stages) and `<`, `>`, `>>` redirection, e.g. `cat /proc/ps | grep init | wc -l`.
+
+They are built on `user/libc/ext.c` / `user/include/tachc.h`: `printf`/`snprintf` family (no libgcc needed for 64-bit values), `ctype`, `strtol`/`strtoul`, heapsort `qsort`, `getopt`, buffered line reader/writer and the regex matcher; `make test` runs `tests/host/userlibc_test.c` against it. Notes: `cp`/`mv` handle regular files only (no `mkdir`/`rename` syscall yet) and `mv` is copy + unlink; `xargs` cannot run shell builtins.
+
 On x86 targets, `make iso` builds and attaches the real userspace payload by
 default. Its ELF processes execute in ring 3 and enter the kernel with `int 0x80`.
 ARM/AArch64 and RISC-V have timer-driven SMP scheduling and isolated page tables,

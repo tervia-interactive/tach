@@ -14,7 +14,7 @@
  */
 
 #define LINE_LEN 256
-#define ARGV_MAX 16
+#define ARGV_MAX 32
 #define HIST_MAX 8 /* igual ao TTY_HISTORY_SIZE do shell antigo */
 #define PATH_LEN 128
 #define FILE_LEN 2048
@@ -300,6 +300,8 @@ static void command_help(void) {
         "  touch <file>...      create empty files (only under /tmp)\n"
         "  rm <file>...         remove files (only under /tmp)\n"
         "  cmd > file | >> file redirect stdout (file under /tmp)\n"
+        "  cmd < file           redirect stdin from a file\n"
+        "  a | b | c            pipe stdout to stdin (up to 4 stages)\n"
         "  syscalls             show active syscall ABI entries\n"
         "  status               show the previous command status\n"
         "  true | false         succeed / fail\n"
@@ -459,32 +461,49 @@ static int command_cd(const char* path) {
     return 0;
 }
 
-static int run_external(char** argv) {
+static const char* const g_builtins[] = {
+    "help", "clear", "echo", "uname", "ps", "id", "whoami", "pid", "pwd", "cd",
+    "ls", "cat", "history", "kill", "touch", "rm", "syscalls", "status",
+    "true", "false", "exit", (const char*)0};
+
+static int is_builtin(const char* cmd) {
+    for (int i = 0; g_builtins[i]; i++)
+        if (strcmp(cmd, g_builtins[i]) == 0) return 1;
+    return 0;
+}
+
+/* Substitui o processo atual pelo ELF do comando (/bin e procurado). So
+ * volta em caso de erro, ja reportado. */
+static void exec_external(char** argv) {
     char path[PATH_LEN];
     const char* cmd = argv[0];
     size_t length = strlen(cmd);
     if (cmd[0] == '/') {
         if (length >= sizeof(path)) {
             err(cmd); err(": name too long\n");
-            return 1;
+            return;
         }
         strcpy(path, cmd);
     } else {
         if (length + 5 >= sizeof(path)) {
             err(cmd); err(": name too long\n");
-            return 1;
+            return;
         }
         strcpy(path, "/bin/");
         strcpy(path + 5, cmd);
     }
+    (void)execve(path, argv, (char* const*)0);
+    err(cmd); err(": command not found or not executable\n");
+}
+
+static int run_external(char** argv) {
     pid_t child = fork();
     if (child < 0) {
         err("sh: fork failed\n");
         return 1;
     }
     if (child == 0) {
-        (void)execve(path, argv, (char* const*)0);
-        err(cmd); err(": command not found or not executable\n");
+        exec_external(argv);
         _exit(127);
     }
     int status = 0;
@@ -599,6 +618,8 @@ static int run_command(int argc, char** argv) {
     } else if (strcmp(cmd, "ls") == 0) {
         return command_ls(argc, argv);
     } else if (strcmp(cmd, "cat") == 0) {
+        /* Sem operandos: le a entrada padrao (pipe/redirecao) via /bin/cat. */
+        if (argc < 2) return run_external(argv);
         return command_cat(argc, argv);
     } else if (strcmp(cmd, "history") == 0) {
         command_history();
@@ -627,41 +648,198 @@ static int run_command(int argc, char** argv) {
     return 0;
 }
 
-/* Trata "cmd ... > arquivo" e "cmd ... >> arquivo" (tokens separados por
- * espaco, redirecao sempre no fim da linha). */
-static int run_line(int argc, char** argv) {
-    int redirect = -1;
+/* Redirecoes: "< arq", "> arq" e ">> arq" (tokens separados por espaco, em
+ * qualquer posicao do comando). Remove os tokens de argv e devolve os alvos.
+ * 0 em sucesso, -1 em erro de sintaxe. */
+static int extract_redirects(char** argv, int* argc_ptr, const char** in_path,
+                             const char** out_path, int* append) {
+    int argc = *argc_ptr;
+    int kept = 0;
     for (int i = 0; i < argc; i++) {
-        if (strcmp(argv[i], ">") == 0 || strcmp(argv[i], ">>") == 0) {
-            redirect = i;
+        int is_in = strcmp(argv[i], "<") == 0;
+        int is_out = strcmp(argv[i], ">") == 0 || strcmp(argv[i], ">>") == 0;
+        if (is_in || is_out) {
+            if (i + 1 >= argc) {
+                err("sh: syntax error near redirection\n");
+                return -1;
+            }
+            if (is_in) {
+                *in_path = argv[i + 1];
+            } else {
+                *out_path = argv[i + 1];
+                *append = argv[i][1] != 0;
+            }
+            i++;
+            continue;
+        }
+        argv[kept++] = argv[i];
+    }
+    argv[kept] = (char*)0;
+    *argc_ptr = kept;
+    if (!kept) {
+        err("sh: syntax error: missing command\n");
+        return -1;
+    }
+    return 0;
+}
+
+static int open_input(const char* path) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) { err("sh: cannot open "); err(path); err("\n"); }
+    return fd;
+}
+
+static int open_output(const char* path, int append) {
+    int fd = open(path, O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC));
+    if (fd < 0) { err("sh: cannot open "); err(path); err(" for writing\n"); }
+    return fd;
+}
+
+/* Comando unico (sem pipe): builtins rodam no proprio shell, com a entrada
+ * e a saida padrao trocadas temporariamente. */
+static int run_simple(int argc, char** argv) {
+    const char* in_path = (const char*)0;
+    const char* out_path = (const char*)0;
+    int append = 0;
+    if (extract_redirects(argv, &argc, &in_path, &out_path, &append) < 0)
+        return 2;
+    if (!in_path && !out_path) return run_command(argc, argv);
+
+    int saved_in = -1, saved_out = -1;
+    int status = 1;
+    if (in_path) {
+        int fd = open_input(in_path);
+        if (fd < 0) return 1;
+        saved_in = dup(0);
+        if (saved_in < 0 || dup2(fd, 0) < 0) {
+            err("sh: cannot redirect input\n");
+            (void)close(fd);
+            if (saved_in >= 0) (void)close(saved_in);
+            return 1;
+        }
+        (void)close(fd);
+    }
+    if (out_path) {
+        int fd = open_output(out_path, append);
+        if (fd >= 0) {
+            saved_out = dup(1);
+            if (saved_out >= 0 && dup2(fd, 1) >= 0) {
+                status = run_command(argc, argv);
+            } else {
+                err("sh: cannot redirect output\n");
+            }
+            (void)close(fd);
+        }
+    } else {
+        status = run_command(argc, argv);
+    }
+    if (saved_out >= 0) { (void)dup2(saved_out, 1); (void)close(saved_out); }
+    if (saved_in >= 0) { (void)dup2(saved_in, 0); (void)close(saved_in); }
+    return status;
+}
+
+#define STAGES_MAX 4
+
+static char** g_stage_argv[STAGES_MAX];
+static int g_stage_argc[STAGES_MAX];
+static const char* g_stage_in[STAGES_MAX];
+static const char* g_stage_out[STAGES_MAX];
+static int g_stage_append[STAGES_MAX];
+
+/* "a | b | c": um filho por estagio, ligados por pipe(). O status devolvido
+ * e o do ultimo estagio. Builtins que mudam estado do shell (cd, exit...)
+ * rodam no filho e portanto nao afetam o shell. */
+static int run_pipeline(int stages) {
+    pid_t pids[STAGES_MAX];
+    int started = 0;
+    int previous = -1;
+    int failed = 0;
+
+    for (int i = 0; i < stages && !failed; i++) {
+        int fds[2] = {-1, -1};
+        if (i < stages - 1 && pipe(fds) < 0) {
+            err("sh: cannot create pipe\n");
+            failed = 1;
             break;
         }
+        pid_t pid = fork();
+        if (pid < 0) {
+            err("sh: fork failed\n");
+            if (fds[0] >= 0) (void)close(fds[0]);
+            if (fds[1] >= 0) (void)close(fds[1]);
+            failed = 1;
+            break;
+        }
+        if (pid == 0) {
+            if (previous >= 0) (void)dup2(previous, 0);
+            if (fds[1] >= 0) (void)dup2(fds[1], 1);
+            if (previous >= 0) (void)close(previous);
+            if (fds[0] >= 0) (void)close(fds[0]);
+            if (fds[1] >= 0) (void)close(fds[1]);
+            if (g_stage_in[i]) {
+                int fd = open_input(g_stage_in[i]);
+                if (fd < 0) _exit(1);
+                (void)dup2(fd, 0);
+                (void)close(fd);
+            }
+            if (g_stage_out[i]) {
+                int fd = open_output(g_stage_out[i], g_stage_append[i]);
+                if (fd < 0) _exit(1);
+                (void)dup2(fd, 1);
+                (void)close(fd);
+            }
+            if (is_builtin(g_stage_argv[i][0]))
+                _exit(run_command(g_stage_argc[i], g_stage_argv[i]));
+            exec_external(g_stage_argv[i]);
+            _exit(127);
+        }
+        pids[started++] = pid;
+        if (previous >= 0) (void)close(previous);
+        if (fds[1] >= 0) (void)close(fds[1]);
+        previous = fds[0];
     }
-    if (redirect < 0) return run_command(argc, argv);
-    if (redirect == 0 || redirect + 2 != argc) {
-        err("sh: syntax error near redirection\n");
-        return 2;
+    if (previous >= 0) (void)close(previous);
+
+    int status = failed ? 1 : 0;
+    for (int i = 0; i < started; i++) {
+        int child_status = 0;
+        if (waitpid(pids[i], &child_status, 0) < 0) child_status = 1;
+        if (!failed && i == started - 1) status = child_status;
     }
-    int append = argv[redirect][1] != 0;
-    const char* path = argv[redirect + 1];
-    int fd = open(path, O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC));
-    if (fd < 0) {
-        err("sh: cannot open "); err(path); err(" for writing\n");
-        return 1;
-    }
-    int saved = dup(1);
-    if (saved < 0 || dup2(fd, 1) < 0) {
-        err("sh: cannot redirect output\n");
-        (void)close(fd);
-        if (saved >= 0) (void)close(saved);
-        return 1;
-    }
-    (void)close(fd);
-    argv[redirect] = (char*)0;
-    int status = run_command(redirect, argv);
-    (void)dup2(saved, 1);
-    (void)close(saved);
     return status;
+}
+
+static int run_line(int argc, char** argv) {
+    /* Divide em estagios nos tokens "|" (troca cada um por NULL). */
+    int stages = 0;
+    int start = 0;
+    for (int i = 0; i <= argc; i++) {
+        if (i < argc && strcmp(argv[i], "|") != 0) continue;
+        if (i == start) {
+            err("sh: syntax error near '|'\n");
+            return 2;
+        }
+        if (stages == STAGES_MAX) {
+            err("sh: too many pipeline stages\n");
+            return 2;
+        }
+        g_stage_argv[stages] = &argv[start];
+        g_stage_argc[stages] = i - start;
+        stages++;
+        if (i < argc) argv[i] = (char*)0;
+        start = i + 1;
+    }
+    if (stages == 1) return run_simple(g_stage_argc[0], g_stage_argv[0]);
+
+    for (int i = 0; i < stages; i++) {
+        g_stage_in[i] = (const char*)0;
+        g_stage_out[i] = (const char*)0;
+        g_stage_append[i] = 0;
+        if (extract_redirects(g_stage_argv[i], &g_stage_argc[i], &g_stage_in[i],
+                              &g_stage_out[i], &g_stage_append[i]) < 0)
+            return 2;
+    }
+    return run_pipeline(stages);
 }
 
 int main(void) {
