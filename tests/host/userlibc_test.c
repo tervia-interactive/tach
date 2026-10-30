@@ -62,7 +62,9 @@ static void test_printf(void) {
     FMT("hel", "%.3s", "hello");
     FMT("ab    |", "%-6s|", "ab");
     FMT("    ab|", "%6.2s|", "abcdef");
-    FMT("(null)", "%s", (char*)0);
+    /* volatile: impede o GCC de ver o NULL literal (-Wformat-overflow). */
+    char* volatile null_text = (char*)0;
+    FMT("(null)", "%s", null_text);
     FMT("x=3 y=-4", "x=%d y=%d", 3, -4);
 
     char small[4];
