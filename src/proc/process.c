@@ -366,7 +366,7 @@ int process_exec_image_args(struct process* process, const void* image,
     process->exec_pending = true;
     process->user_stack_top = stack_top;
     process->user_stack_bottom = stack_page;
-    process->brk_start = 0x20000000u;
+    process->brk_start = 0x40000000u;
     process->brk_end = process->brk_start;
     memset(&process->user_context, 0, sizeof(process->user_context));
     process->user_context.pc = (uintptr_t)loader.entry_point;
