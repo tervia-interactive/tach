@@ -18,7 +18,7 @@ typedef struct timer {
     bool active;
 } timer_t;
 
-/* Initialize timer */
+/* Initialize timer storage. Required before the first timer_set(). */
 void timer_init(timer_t* tmr);
 
 /* Set timer */
@@ -33,7 +33,11 @@ bool timer_is_active(timer_t* tmr);
 /* Get current tick count */
 tick_t timer_get_ticks(void);
 
-/* Initialize timer subsystem */
+/* Advance the wheel: fire every timer whose deadline has passed. Called by
+ * the HAL tick on the boot CPU only, after the tick counter is incremented. */
+void timer_tick(void);
+
+/* Initialize timer subsystem (before the periodic tick is enabled) */
 void timer_subsystem_init(void);
 
 #endif /* _KERNEL_TIMER_H */

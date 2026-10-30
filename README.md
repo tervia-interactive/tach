@@ -186,7 +186,9 @@ tach/
 - Spinlocks, mutexes, RW locks
 - Reference counting
 - Per-CPU data support
-- Timer wheel for delayed work
+- Timer wheel for delayed work (100 Hz, driven from the boot CPU tick)
+- Supervised-process watchdog: missed deadline sends `SIGKILL`, with a bounded
+  auto-restart budget the supervisor consumes via `watchdog_rebind()`
 
 ### Memory Management
 - Bitmap physical frame allocator populated from Multiboot memory maps

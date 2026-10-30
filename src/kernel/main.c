@@ -14,6 +14,7 @@
 #include <kernel/rwlock.h>
 #include <kernel/port.h>
 #include <kernel/watchdog.h>
+#include <kernel/timer.h>
 #include <hal/console.h>
 #include <hal/cpu.h>
 #include <hal/smp.h>
@@ -135,6 +136,7 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     klog_info("proc", "scheduler: initializing run queues");
     scheduler_init();
     arch_user_init();
+    timer_subsystem_init();
     hal_timer_init();
     hal_smp_init();
     hal_irq_enable();

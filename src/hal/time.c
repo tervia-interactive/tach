@@ -1,5 +1,6 @@
 /* tach - Periodic architecture timer driving scheduler preemption. */
 #include <kernel/types.h>
+#include <kernel/timer.h>
 #include <hal/cpu.h>
 #include <hal/irq.h>
 #include <hal/time.h>
@@ -150,8 +151,10 @@ void hal_timer_init_secondary(void) {
 }
 
 void hal_timer_interrupt(void) {
-    if (hal_smp_current_cpu() == 0) g_timer_ticks++;
+    bool boot_cpu = hal_smp_current_cpu() == 0;
+    if (boot_cpu) g_timer_ticks++;
     timer_rearm();
+    if (boot_cpu) timer_tick();
     scheduler_tick();
 }
 
