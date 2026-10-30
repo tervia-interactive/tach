@@ -419,6 +419,13 @@ void process_terminate(struct process* process, int code) {
     process->exit_code = code;
     process->state = PROCESS_STATE_ZOMBIE;
     scheduler_remove(process);
+    /* Drop the descriptors now rather than at reap time: a parent reading a
+     * pipe until EOF must see the child's write end close when it exits,
+     * otherwise it never reaches waitpid() and both sides hang. */
+    if (process->fds) {
+        fd_table_destroy(process->fds);
+        process->fds = NULL;
+    }
     struct process* parent = process_get(process->ppid);
     if (parent) {
         (void)signal_send(parent->pid, SIGCHLD);

@@ -4,6 +4,8 @@
 typedef __SIZE_TYPE__ size_t;
 typedef __PTRDIFF_TYPE__ ssize_t;
 typedef int pid_t;
+typedef unsigned int uid_t;
+typedef long off_t;
 
 #define SYS_EXIT 1
 #define SYS_FORK 2
@@ -14,7 +16,17 @@ typedef int pid_t;
 #define SYS_WAITPID 7
 #define SYS_EXECVE 11
 #define SYS_BRK 17
+#define SYS_LSEEK 19
 #define SYS_GETPID 20
+#define SYS_GETUID 24
+#define SYS_DUP 41
+#define SYS_PIPE 42
+#define SYS_DUP2 63
+#define SYS_GETPPID 64
+
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
 
 ssize_t read(int fd, void* buffer, size_t count);
 ssize_t write(int fd, const void* buffer, size_t count);
@@ -24,6 +36,12 @@ pid_t fork(void);
 int execve(const char* path, char* const argv[], char* const envp[]);
 pid_t waitpid(pid_t pid, int* status, int options);
 pid_t getpid(void);
+pid_t getppid(void);
+uid_t getuid(void);
+int pipe(int fds[2]);
+int dup(int fd);
+int dup2(int old_fd, int new_fd);
+off_t lseek(int fd, off_t offset, int whence);
 void* brk(void* address);
 void* malloc(size_t size);
 void free(void* pointer);

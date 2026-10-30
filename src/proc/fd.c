@@ -7,6 +7,15 @@
 static struct fd_table g_fd_tables[FD_TABLE_POOL_SIZE];
 static bool g_fd_table_used[FD_TABLE_POOL_SIZE];
 
+/* Per-slot vnode hooks (see struct vnode_ops in fs/vfs.h). */
+static void fd_notify_dup(struct vnode* vnode) {
+    if (vnode && vnode->ops && vnode->ops->dup) vnode->ops->dup(vnode);
+}
+
+static void fd_notify_release(struct vnode* vnode) {
+    if (vnode && vnode->ops && vnode->ops->release) vnode->ops->release(vnode);
+}
+
 struct fd_table* fd_table_create(void) {
     for (size_t i = 0; i < FD_TABLE_POOL_SIZE; i++) {
         if (!g_fd_table_used[i]) {
@@ -27,6 +36,7 @@ struct fd_table* fd_table_clone(const struct fd_table* source) {
         if (!source->entries[fd].vnode) continue;
         clone->entries[fd] = source->entries[fd];
         clone->entries[fd].vnode->refcount++;
+        fd_notify_dup(clone->entries[fd].vnode);
     }
     return clone;
 }
@@ -79,7 +89,9 @@ void fd_put(struct fd_table* table, int fd) {
     if (entry->vnode->refcount) {
         entry->vnode->refcount--;
     }
+    struct vnode* vnode = entry->vnode;
     memset(entry, 0, sizeof(*entry));
+    fd_notify_release(vnode);
 }
 
 int fd_dup(struct fd_table* table, int oldfd, int newfd) {
@@ -93,5 +105,6 @@ int fd_dup(struct fd_table* table, int oldfd, int newfd) {
     fd_put(table, newfd);
     table->entries[newfd] = *old;
     table->entries[newfd].vnode->refcount++;
+    fd_notify_dup(table->entries[newfd].vnode);
     return newfd;
 }

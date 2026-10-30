@@ -21,6 +21,7 @@ struct dirent {
 #define VNODE_LINK  3
 #define VNODE_CHAR  4
 #define VNODE_BLOCK 5
+#define VNODE_PIPE  6
 
 #define O_RDONLY 0x0000
 #define O_WRONLY 0x0001
@@ -47,6 +48,12 @@ struct vnode_ops {
     ssize_t (*read)(struct vnode* vn, void* buf, size_t count, int64_t offset);
     ssize_t (*write)(struct vnode* vn, const void* buf, size_t count, int64_t offset);
     int (*readdir)(struct vnode* vn, struct dirent* entry);
+    /* Optional per-descriptor hooks, called by the fd layer (fd.c): `dup`
+     * once for every extra descriptor slot referencing the vnode (dup, dup2,
+     * fork) and `release` once for every slot that is dropped (close, exit).
+     * Anonymous pipes use them to count open read/write ends. */
+    void (*dup)(struct vnode* vn);
+    void (*release)(struct vnode* vn);
 };
 
 void vfs_init(void);

@@ -32,7 +32,7 @@ test-host:
 		tests/host/userspace_test.c \
 		src/lib/string.c src/lib/printf.c src/kernel/klog.c src/kernel/userptr.c \
 		src/fs/vfs.c src/proc/fd.c src/proc/process.c \
-		src/proc/scheduler.c src/proc/syscall.c src/proc/signal.c src/proc/wait.c \
+		src/proc/scheduler.c src/proc/syscall.c src/proc/signal.c src/proc/wait.c src/proc/pipe.c \
 		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/time.c src/kernel/timer.c src/hal/user.c src/hal/smp.c src/hal/io.c src/hal/host_stubs.c src/ipc/sem.c \
 		src/term/tty.c src/term/vterm.c src/term/shell.c \
 		src/userland/runtime.c \
@@ -43,7 +43,7 @@ test-host:
 		tests/host/syscall_userptr_test.c \
 		src/lib/string.c src/kernel/userptr.c src/proc/syscall.c src/proc/process.c \
 		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/console.c \
-		src/lib/printf.c src/kernel/klog.c src/fs/vfs.c src/proc/fd.c src/proc/signal.c \
+		src/lib/printf.c src/kernel/klog.c src/fs/vfs.c src/proc/fd.c src/proc/pipe.c src/proc/signal.c \
 		src/proc/wait.c src/proc/scheduler.c src/hal/time.c src/kernel/timer.c src/sync/mutex.c src/hal/io.c src/hal/smp.c src/hal/host_stubs.c \
 		src/drivers/char/serial_8250.c src/drivers/video/vga_text.c src/drivers/input/keyboard_ps2.c \
 		-o src/build/host/syscall-userptr-test

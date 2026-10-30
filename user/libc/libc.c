@@ -48,6 +48,16 @@ pid_t waitpid(pid_t pid, int* status, int options) {
     return (pid_t)raw_syscall(SYS_WAITPID, pid, (long)status, options, 0, 0, 0);
 }
 pid_t getpid(void) { return (pid_t)raw_syscall(SYS_GETPID, 0, 0, 0, 0, 0, 0); }
+pid_t getppid(void) { return (pid_t)raw_syscall(SYS_GETPPID, 0, 0, 0, 0, 0, 0); }
+uid_t getuid(void) { return (uid_t)raw_syscall(SYS_GETUID, 0, 0, 0, 0, 0, 0); }
+int pipe(int fds[2]) { return (int)raw_syscall(SYS_PIPE, (long)fds, 0, 0, 0, 0, 0); }
+int dup(int fd) { return (int)raw_syscall(SYS_DUP, fd, 0, 0, 0, 0, 0); }
+int dup2(int old_fd, int new_fd) {
+    return (int)raw_syscall(SYS_DUP2, old_fd, new_fd, 0, 0, 0, 0);
+}
+off_t lseek(int fd, off_t offset, int whence) {
+    return (off_t)raw_syscall(SYS_LSEEK, fd, (long)offset, whence, 0, 0, 0);
+}
 void* brk(void* address) {
     return (void*)raw_syscall(SYS_BRK, (long)address, 0, 0, 0, 0, 0);
 }

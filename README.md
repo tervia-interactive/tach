@@ -212,6 +212,9 @@ tach/
 - Per-process file descriptor tables with inherited console standard streams
 - Syscalls for I/O plus `fork`, `execve`, `waitpid`, `kill`, `sigaction`,
   `brk`, `mmap`, and `munmap`
+- Anonymous pipes (`pipe`), `dup`/`dup2`, `lseek` on regular files, `getppid`
+  and `getuid`; pipe ends are counted per descriptor, so EOF and `EPIPE`
+  work across `fork` and process exit
 - Read-only shared fork mappings with first-write page-fault separation
 - Freestanding `_start`/crt0 and a minimal libc with syscall wrappers,
   string routines, and a `brk`-backed allocator

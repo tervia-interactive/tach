@@ -3,6 +3,7 @@
 #include <proc/syscall.h>
 #include <proc/process.h>
 #include <proc/fd.h>
+#include <proc/pipe.h>
 #include <fs/vfs.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
@@ -81,6 +82,9 @@ static long sys_read(uint64_t fd, uint64_t buffer, uint64_t count,
         entry->offset += result;
         total += (size_t)result;
         if ((size_t)result < chunk) break;
+        /* A pipe read returns as soon as some data was delivered; looping
+         * again could block on an empty pipe with data already in hand. */
+        if (entry->vnode->type == VNODE_PIPE) break;
     }
     return (long)total;
 }
@@ -356,6 +360,96 @@ static long sys_munmap(uint64_t address, uint64_t length, uint64_t unused3,
 #endif
 }
 
+static long sys_getppid(uint64_t unused1, uint64_t unused2, uint64_t unused3,
+                        uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused1; (void)unused2; (void)unused3;
+    (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    return proc ? (long)proc->ppid : -ESRCH;
+}
+
+static long sys_getuid(uint64_t unused1, uint64_t unused2, uint64_t unused3,
+                       uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused1; (void)unused2; (void)unused3;
+    (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    return proc ? (long)proc->uid : -ESRCH;
+}
+
+static long sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence,
+                      uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc || !proc->fds) return -ESRCH;
+    struct fd_entry* entry = fd_get(proc->fds, (int)fd);
+    if (!entry) return -EBADF;
+    /* Only regular files are seekable; pipes, ttys and directories are not. */
+    if (entry->vnode->type != VNODE_FILE) return -ESPIPE;
+    int64_t base = 0;
+    switch ((int)whence) {
+        case SEEK_SET: base = 0; break;
+        case SEEK_CUR: base = entry->offset; break;
+        case SEEK_END: base = (int64_t)entry->vnode->size; break;
+        default: return -EINVAL;
+    }
+    /* The offset is a signed value in the caller's native long width. */
+    int64_t delta = (int64_t)(long)offset;
+    const int64_t limit = (int64_t)(~(uint64_t)0 >> 1);
+    if (delta > 0 && base > limit - delta) return -EOVERFLOW;
+    int64_t target = base + delta;
+    if (target < 0) return -EINVAL;
+    entry->offset = target;
+    return (long)target;
+}
+
+static long sys_dup(uint64_t oldfd, uint64_t unused2, uint64_t unused3,
+                    uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused2; (void)unused3; (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc || !proc->fds) return -ESRCH;
+    if (!fd_get(proc->fds, (int)oldfd)) return -EBADF;
+    for (int fd = 0; fd < FD_TABLE_SIZE; fd++)
+        if (!proc->fds->entries[fd].vnode)
+            return fd_dup(proc->fds, (int)oldfd, fd);
+    return -EMFILE;
+}
+
+static long sys_dup2(uint64_t oldfd, uint64_t newfd, uint64_t unused3,
+                     uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused3; (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc || !proc->fds) return -ESRCH;
+    if (!fd_get(proc->fds, (int)oldfd)) return -EBADF;
+    if (newfd >= (uint64_t)FD_TABLE_SIZE) return -EBADF;
+    return fd_dup(proc->fds, (int)oldfd, (int)newfd);
+}
+
+static long sys_pipe(uint64_t fds_pointer, uint64_t unused2, uint64_t unused3,
+                     uint64_t unused4, uint64_t unused5, uint64_t unused6) {
+    (void)unused2; (void)unused3; (void)unused4; (void)unused5; (void)unused6;
+    struct process* proc = process_get_current();
+    if (!proc || !fds_pointer) return -EFAULT;
+    if (proc->user_mode &&
+        !is_valid_user_range((const void*)(uintptr_t)fds_pointer,
+                             sizeof(int) * 2))
+        return -EFAULT;
+    int local_fds[2] = {-1, -1};
+    int result = pipe_create(local_fds);
+    if (result < 0) return result;
+    if (copy_to_caller(proc, (void*)(uintptr_t)fds_pointer, local_fds,
+                       sizeof(local_fds)) < 0) {
+        /* The caller never learns the descriptors: close both again. */
+        for (int i = 0; i < 2; i++) {
+            struct fd_entry* entry = fd_get(proc->fds, local_fds[i]);
+            if (!entry) continue;
+            (void)vfs_close(entry->vnode);
+            fd_put(proc->fds, local_fds[i]);
+        }
+        return -EFAULT;
+    }
+    return 0;
+}
+
 void syscall_init(void) {
     memset(g_syscalls, 0, sizeof(g_syscalls));
     syscall_register(SYS_EXIT, sys_exit);
@@ -372,6 +466,12 @@ void syscall_init(void) {
     syscall_register(SYS_BRK, sys_brk);
     syscall_register(SYS_MMAP, sys_mmap);
     syscall_register(SYS_MUNMAP, sys_munmap);
+    syscall_register(SYS_GETPPID, sys_getppid);
+    syscall_register(SYS_GETUID, sys_getuid);
+    syscall_register(SYS_LSEEK, sys_lseek);
+    syscall_register(SYS_DUP, sys_dup);
+    syscall_register(SYS_DUP2, sys_dup2);
+    syscall_register(SYS_PIPE, sys_pipe);
 }
 
 long syscall_dispatch(int num, uint64_t arg1, uint64_t arg2, uint64_t arg3,
@@ -404,6 +504,12 @@ const char* syscall_name(int num) {
         case SYS_BRK: return "brk";
         case SYS_MMAP: return "mmap";
         case SYS_MUNMAP: return "munmap";
+        case SYS_GETPPID: return "getppid";
+        case SYS_GETUID: return "getuid";
+        case SYS_LSEEK: return "lseek";
+        case SYS_DUP: return "dup";
+        case SYS_DUP2: return "dup2";
+        case SYS_PIPE: return "pipe";
         default: return NULL;
     }
 }
