@@ -297,7 +297,9 @@ static void populate(void) {
 /* =============================================================== testes */
 
 static struct blkdev* attach(uint64_t sectors) {
-    return ramdisk_create("ram0", g_img, (size_t)(sectors * 512u), false);
+    /* Somente leitura: este teste cobre o caminho de leitura e as recusas de
+     * escrita (-EROFS); a escrita e testada em fat32_write_test.c. */
+    return ramdisk_create("ram0", g_img, (size_t)(sectors * 512u), true);
 }
 
 static int mount_expect(uint64_t dev_sectors, int expected) {

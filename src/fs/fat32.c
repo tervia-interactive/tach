@@ -1,12 +1,14 @@
 /*
- * fs/fat32.c - FAT32 somente leitura (BPB, cadeia da FAT, diretorios, LFN)
+ * fs/fat32.c - FAT32 (BPB, cadeia da FAT, diretorios, LFN, escrita em arquivos)
  * Copyright 2026 Tervia Interactive™
  * Licensed under Apache License 2.0
  *
- * Todo acesso a disco passa pela camada de bloco (bread/blk_read). O unico
- * estado mutavel e o contador de vnodes abertos e os caches de percurso de
- * cada no (ultimo cluster lido, cursor de readdir), protegidos por um
- * spinlock curto; o spinlock nunca e mantido durante E/S.
+ * Todo acesso a disco passa pela camada de bloco (bread/blk_read). O estado
+ * mutavel em memoria (vnodes abertos, contadores do FSInfo, caches de percurso
+ * e metadados de cada no) e protegido por um spinlock curto; o spinlock nunca
+ * e mantido durante E/S. A reserva de um cluster livre e atomica porque o
+ * teste "entrada == 0" e a marca EOC acontecem sobre o buffer em cache da
+ * FAT sob o spinlock (o cache e unico por setor).
  */
 #include <kernel/types.h>
 #include <kernel/errno.h>
@@ -20,10 +22,25 @@
 #define FAT32_MAX_CLUSTERS 0x0FFFFFF5u  /* clusters 2..0x0FFFFFF6 */
 #define FAT32_EOC_MIN      0x0FFFFFF8u
 #define FAT32_LFN_SLOTS    20u          /* 20 * 13 >= 255 unidades UTF-16 */
+#define FAT32_EOC          0x0FFFFFFFu
+#define FAT32_UNKNOWN      0xFFFFFFFFu  /* FSInfo: contador desconhecido */
+#define FAT32_MAX_SIZE     0xFFFFFFFFu  /* limite de arquivo FAT: 4 GiB - 1 */
+
+struct fat32_vnode;
 
 struct fat32_vol {
     struct blkdev* dev;
+    bool readonly;              /* dev->readonly */
+    uint32_t num_fats;
+    uint32_t fat_size;          /* setores por copia da FAT */
+    uint32_t fat_active;        /* copia lida (0 com espelhamento) */
+    bool mirror;                /* gravar em todas as copias */
+    uint64_t fat0_lba;          /* inicio da 1a copia da FAT */
     uint64_t fat_lba;           /* inicio da FAT ativa */
+    uint64_t fsinfo_lba;        /* 0 = sem FSInfo */
+    uint32_t free_count;        /* FAT32_UNKNOWN se desconhecido (lock) */
+    uint32_t next_free;         /* dica de alocacao (lock) */
+    bool fsinfo_dirty;          /* (lock) */
     uint64_t data_lba;          /* setor do cluster 2 */
     uint32_t clusters;          /* clusters de dados (numerados 2..clusters+1) */
     uint32_t root_cluster;
@@ -31,6 +48,7 @@ struct fat32_vol {
     uint32_t spc_shift;
     uint32_t entries_per_cluster;
     uint32_t open_nodes;        /* vnodes vivos (protegido por `lock`) */
+    struct fat32_vnode* open_list;  /* vnodes vivos, p/ compartilhar (lock) */
     char label[12];
     spinlock_t lock;
 };
@@ -44,6 +62,16 @@ static uint16_t le16(const uint8_t* p) {
 static uint32_t le32(const uint8_t* p) {
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 |
            (uint32_t)p[3] << 24;
+}
+
+static void put16(uint8_t* p, uint32_t v) {
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+}
+
+static void put32(uint8_t* p, uint32_t v) {
+    put16(p, v);
+    put16(p + 2, v >> 16);
 }
 
 static char fold(char c) {
@@ -63,7 +91,28 @@ static uint64_t cluster_lba(const struct fat32_vol* vol, uint32_t cluster) {
     return vol->data_lba + ((uint64_t)(cluster - 2u) << vol->spc_shift);
 }
 
+/* ----------------------------------------------------------------- relogio */
+
+static void (*g_clock)(uint16_t* date, uint16_t* time);
+
+void fat32_set_clock(void (*fn)(uint16_t* fat_date, uint16_t* fat_time)) {
+    g_clock = fn;
+}
+
+/* TODO: o kernel ainda nao tem RTC/epoch; ate la usa 2026-01-01 00:00:00
+ * (data FAT = (2026-1980)<<9 | 1<<5 | 1). */
+static void fat_now(uint16_t* date, uint16_t* time) {
+    if (g_clock) {
+        g_clock(date, time);
+        return;
+    }
+    *date = (uint16_t)((46u << 9) | (1u << 5) | 1u);
+    *time = 0;
+}
+
 /* ------------------------------------------------------------------ mount */
+
+static int fat_count_free(struct fat32_vol* vol, uint32_t* out);
 
 int fat32_mount(struct blkdev* dev, struct fat32_vol** out) {
     if (!dev || !out) return -EINVAL;
@@ -108,7 +157,15 @@ int fat32_mount(struct blkdev* dev, struct fat32_vol** out) {
     struct fat32_vol* vol = kzalloc(sizeof(*vol));
     if (!vol) return -ENOMEM;
     vol->dev = dev;
+    vol->readonly = dev->readonly;
+    vol->num_fats = nfats;
+    vol->fat_size = fat_size;
+    vol->fat_active = active;
+    vol->mirror = (ext_flags & 0x80u) == 0;
+    vol->fat0_lba = reserved;
     vol->fat_lba = (uint64_t)reserved + (uint64_t)active * fat_size;
+    vol->free_count = FAT32_UNKNOWN;
+    vol->next_free = 2u;
     vol->data_lba = meta;
     vol->clusters = clusters;
     vol->root_cluster = root;
@@ -125,9 +182,37 @@ int fat32_mount(struct blkdev* dev, struct fat32_vol** out) {
             vol->label[i] = (c >= 0x20 && c < 0x7F) ? (char)c : '?';
         }
     }
-    klog_info("fat32", "%s: %u clusters de %u bytes, raiz no cluster %u",
+
+    /* FSInfo: so contadores/dicas; qualquer inconsistencia -> recalcula. */
+    uint32_t fsinfo = le16(bs + 48);
+    if (fsinfo >= 1u && fsinfo < reserved) {
+        struct blkbuf* fb;
+        if (bread(dev, fsinfo, &fb) == 0) {
+            const uint8_t* f = fb->data;
+            if (le32(f) == 0x41615252u && le32(f + 484) == 0x61417272u &&
+                le32(f + 508) == 0xAA550000u) {
+                vol->fsinfo_lba = fsinfo;
+                uint32_t fc = le32(f + 488), nf = le32(f + 492);
+                if (fc <= clusters) vol->free_count = fc;
+                if (nf >= 2u && nf < clusters + 2u) vol->next_free = nf;
+            }
+            brelse(fb);
+        }
+    }
+    if (vol->free_count == FAT32_UNKNOWN && !vol->readonly) {
+        uint32_t free_clusters;
+        int counted = fat_count_free(vol, &free_clusters);
+        if (counted < 0) {
+            kfree(vol);
+            return counted;
+        }
+        vol->free_count = free_clusters;
+        vol->fsinfo_dirty = vol->fsinfo_lba != 0;
+    }
+
+    klog_info("fat32", "%s: %u clusters de %u bytes, raiz no cluster %u%s",
               dev->name, (unsigned)clusters, (unsigned)(spc * BLK_SECTOR_SIZE),
-              (unsigned)root);
+              (unsigned)root, vol->readonly ? " (somente leitura)" : "");
     *out = vol;
     return 0;
 }
@@ -138,6 +223,8 @@ int fat32_unmount(struct fat32_vol* vol) {
     uint32_t open_nodes = vol->open_nodes;
     spinlock_unlock(&vol->lock);
     if (open_nodes) return -EBUSY;
+    int result = fat32_sync(vol);
+    if (result < 0) return result;      /* volume continua montado */
     kfree(vol);
     return 0;
 }
@@ -152,6 +239,10 @@ uint32_t fat32_cluster_count(const struct fat32_vol* vol) {
 
 uint32_t fat32_cluster_size(const struct fat32_vol* vol) {
     return vol ? vol->spc * BLK_SECTOR_SIZE : 0;
+}
+
+bool fat32_readonly(const struct fat32_vol* vol) {
+    return vol ? vol->readonly : true;
 }
 
 /* -------------------------------------------------------- cadeia da FAT */
@@ -169,6 +260,191 @@ static int fat_next(struct fat32_vol* vol, uint32_t cluster, uint32_t* next) {
     if (value < 2u || value >= vol->clusters + 2u) return -EIO;
     *next = value;
     return 1;
+}
+
+/* --------------------------------------------------- escrita: FAT/clusters */
+
+/* Conta entradas livres da FAT ativa (varredura; so no mount sem FSInfo). */
+static int fat_count_free(struct fat32_vol* vol, uint32_t* out) {
+    uint32_t end = vol->clusters + 2u;           /* exclusivo */
+    uint32_t count = 0;
+    for (uint32_t base = 0; base < end; base += 128u) {
+        struct blkbuf* buf;
+        int result = bread(vol->dev, vol->fat_lba + (base >> 7), &buf);
+        if (result < 0) return result;
+        for (uint32_t i = 0; i < 128u && base + i < end; i++) {
+            if (base + i < 2u) continue;
+            if ((le32(buf->data + i * 4u) & 0x0FFFFFFFu) == 0) count++;
+        }
+        brelse(buf);
+    }
+    *out = count;
+    return 0;
+}
+
+int fat32_free_clusters(struct fat32_vol* vol, uint32_t* out) {
+    if (!vol || !out) return -EINVAL;
+    spinlock_lock(&vol->lock);
+    uint32_t known = vol->free_count;
+    spinlock_unlock(&vol->lock);
+    if (known == FAT32_UNKNOWN) {
+        int result = fat_count_free(vol, &known);
+        if (result < 0) return result;
+        spinlock_lock(&vol->lock);
+        if (vol->free_count == FAT32_UNKNOWN) vol->free_count = known;
+        spinlock_unlock(&vol->lock);
+    }
+    *out = known;
+    return 0;
+}
+
+/* Grava `value` (28 bits) na copia `copy` da FAT, preservando os 4 bits
+ * altos. Um buffer preso por vez. */
+static int fat_put_copy(struct fat32_vol* vol, uint32_t copy, uint32_t cluster,
+                        uint32_t value) {
+    struct blkbuf* buf;
+    int result = bread(vol->dev,
+                       vol->fat0_lba + (uint64_t)copy * vol->fat_size +
+                           (cluster >> 7),
+                       &buf);
+    if (result < 0) return result;
+    uint8_t* e = buf->data + (cluster & 127u) * 4u;
+    put32(e, (le32(e) & 0xF0000000u) | (value & 0x0FFFFFFFu));
+    bdirty(buf);
+    brelse(buf);
+    return 0;
+}
+
+/* Grava a entrada em todas as copias (ou so na ativa sem espelhamento). */
+static int fat_set(struct fat32_vol* vol, uint32_t cluster, uint32_t value) {
+    if (cluster < 2u || cluster >= vol->clusters + 2u) return -EIO;
+    if (!vol->mirror) return fat_put_copy(vol, vol->fat_active, cluster, value);
+    for (uint32_t copy = 0; copy < vol->num_fats; copy++) {
+        int result = fat_put_copy(vol, copy, cluster, value);
+        if (result < 0) return result;
+    }
+    return 0;
+}
+
+/* Reserva um cluster livre e o marca como fim de cadeia (EOC) em todas as
+ * copias. A reserva e atomica: o teste "entrada == 0" e a marca EOC rodam
+ * sobre o buffer em cache da FAT ativa dentro do spinlock. Busca circular a
+ * partir da dica do FSInfo. -ENOSPC so depois de percorrer o volume todo.
+ * O conteudo do cluster NAO e alterado (ver cluster_zero). */
+static int cluster_alloc(struct fat32_vol* vol, uint32_t* out) {
+    if (vol->readonly) return -EROFS;
+    uint32_t end = vol->clusters + 2u;           /* exclusivo */
+    spinlock_lock(&vol->lock);
+    uint32_t cl = vol->next_free;
+    spinlock_unlock(&vol->lock);
+    if (cl < 2u || cl >= end) cl = 2u;
+    uint32_t remaining = vol->clusters;
+
+    while (remaining) {
+        uint32_t first = cl & 127u;
+        uint32_t span = 128u - first;            /* entradas deste setor */
+        if (span > remaining) span = remaining;
+        if (span > end - cl) span = end - cl;
+        struct blkbuf* buf;
+        int result = bread(vol->dev, vol->fat_lba + (cl >> 7), &buf);
+        if (result < 0) return result;
+
+        uint32_t found = 0;
+        spinlock_lock(&vol->lock);
+        for (uint32_t i = 0; i < span; i++) {
+            uint8_t* e = buf->data + (first + i) * 4u;
+            uint32_t old = le32(e);
+            if ((old & 0x0FFFFFFFu) != 0) continue;
+            put32(e, (old & 0xF0000000u) | FAT32_EOC);
+            found = cl + i;
+            break;
+        }
+        if (found) {
+            if (vol->free_count != FAT32_UNKNOWN && vol->free_count)
+                vol->free_count--;
+            vol->next_free = found + 1u < end ? found + 1u : 2u;
+            vol->fsinfo_dirty = true;
+        }
+        spinlock_unlock(&vol->lock);
+
+        if (found) {
+            bdirty(buf);
+            brelse(buf);
+            if (vol->mirror) {
+                for (uint32_t copy = 0; copy < vol->num_fats; copy++) {
+                    if (copy == vol->fat_active) continue;
+                    result = fat_put_copy(vol, copy, found, FAT32_EOC);
+                    if (result < 0) {            /* desfaz a reserva */
+                        (void)fat_put_copy(vol, vol->fat_active, found, 0);
+                        spinlock_lock(&vol->lock);
+                        if (vol->free_count != FAT32_UNKNOWN) vol->free_count++;
+                        spinlock_unlock(&vol->lock);
+                        return result;
+                    }
+                }
+            }
+            *out = found;
+            return 0;
+        }
+        brelse(buf);
+        cl += span;
+        if (cl >= end) cl = 2u;
+        remaining -= span;
+    }
+    return -ENOSPC;
+}
+
+/* Libera a cadeia que comeca em `first` (0 = nada). Para no primeiro erro de
+ * gravacao e devolve -errno; os clusters ja liberados continuam contados. Um
+ * elo invalido (livre/reservado/fora do volume) termina a cadeia com -EIO
+ * depois de liberar o cluster atual. */
+static int cluster_free_chain(struct fat32_vol* vol, uint32_t first) {
+    uint32_t cl = first;
+    uint32_t freed = 0, lowest = 0xFFFFFFFFu;
+    int error = 0;
+    while (cl >= 2u && cl < vol->clusters + 2u) {
+        if (freed >= vol->clusters) {            /* cadeia em loop */
+            error = -EIO;
+            break;
+        }
+        uint32_t next = 0;
+        int link = fat_next(vol, cl, &next);
+        int result = fat_set(vol, cl, 0);
+        if (result < 0) {
+            error = result;
+            break;
+        }
+        freed++;
+        if (cl < lowest) lowest = cl;
+        if (link <= 0) {
+            if (link < 0) error = link;
+            break;
+        }
+        cl = next;
+    }
+    if (freed) {
+        spinlock_lock(&vol->lock);
+        if (vol->free_count != FAT32_UNKNOWN) {
+            vol->free_count += freed;
+            if (vol->free_count > vol->clusters) vol->free_count = vol->clusters;
+        }
+        if (lowest < vol->next_free) vol->next_free = lowest;
+        vol->fsinfo_dirty = true;
+        spinlock_unlock(&vol->lock);
+    }
+    return error;
+}
+
+/* Zera todos os setores do cluster (sem ler do disco). */
+static int cluster_zero(struct fat32_vol* vol, uint32_t cluster) {
+    uint64_t lba = cluster_lba(vol, cluster);
+    for (uint32_t i = 0; i < vol->spc; i++) {
+        struct blkbuf* buf;
+        int result = bnew(vol->dev, lba + i, &buf);   /* zerado e sujo */
+        if (result < 0) return result;
+        brelse(buf);
+    }
+    return 0;
 }
 
 /* ------------------------------------------------------------ diretorios */
@@ -306,6 +582,8 @@ static int dir_next(struct fat32_vol* vol, struct fat32_dircur* cur,
             cur->cluster = 0;
             return 0;
         }
+        uint32_t ent_cluster = cur->cluster;     /* posicao desta entrada */
+        uint32_t ent_pos = cur->pos;
         result = cur_advance(vol, cur);
         if (result < 0) return result;
         if (e[0] == 0xE5) {                      /* apagada */
@@ -363,6 +641,8 @@ static int dir_next(struct fat32_vol* vol, struct fat32_dircur* cur,
         info->size = (attr & FAT32_ATTR_DIR) ? 0 : le32(e + 28);
         info->wtime = le16(e + 22);
         info->wdate = le16(e + 24);
+        info->dir_cluster = ent_cluster;
+        info->dir_pos = ent_pos;
         return 1;
     }
 }
@@ -540,6 +820,383 @@ int fat32_readdir(struct fat32_vol* vol, struct fat32_node* node, size_t index,
     }
 }
 
+/* ----------------------------------------------------------------- escrita */
+
+struct dent_meta {                      /* copia dos campos que vao ao disco */
+    uint32_t dir_cluster, dir_pos, first_cluster, size;
+    uint16_t wdate, wtime;
+};
+
+/* Reescreve first_cluster/size/datas na entrada 8.3 (e liga o bit ARQUIVO).
+ * -ENOENT se a entrada nao existir mais (apagada/LFN). */
+static int dirent_store(struct fat32_vol* vol, const struct dent_meta* m) {
+    if (m->dir_cluster == 0) return 0;           /* raiz: nao tem entrada */
+    if (m->dir_cluster < 2u || m->dir_cluster >= vol->clusters + 2u ||
+        m->dir_pos >= vol->entries_per_cluster)
+        return -EIO;
+    struct blkbuf* buf;
+    int result = bread(vol->dev,
+                       cluster_lba(vol, m->dir_cluster) + (m->dir_pos >> 4),
+                       &buf);
+    if (result < 0) return result;
+    uint8_t* e = buf->data + (m->dir_pos & 15u) * 32u;
+    if (e[0] == 0x00 || e[0] == 0xE5 || (e[11] & 0x3Fu) == 0x0Fu) {
+        brelse(buf);
+        return -ENOENT;
+    }
+    put16(e + 20, m->first_cluster >> 16);
+    put16(e + 26, m->first_cluster);
+    put32(e + 28, m->size);
+    put16(e + 22, m->wtime);
+    put16(e + 24, m->wdate);
+    put16(e + 18, m->wdate);                     /* ultimo acesso */
+    e[11] = (uint8_t)(e[11] | FAT32_ATTR_ARCH);
+    bdirty(buf);
+    brelse(buf);
+    return 0;
+}
+
+int fat32_node_sync(struct fat32_vol* vol, struct fat32_node* node) {
+    if (!vol || !node) return -EINVAL;
+    struct dent_meta meta;
+    spinlock_lock(&vol->lock);
+    if (!node->dirty) {
+        spinlock_unlock(&vol->lock);
+        return 0;
+    }
+    meta.dir_cluster = node->info.dir_cluster;
+    meta.dir_pos = node->info.dir_pos;
+    meta.first_cluster = node->info.first_cluster;
+    meta.size = node->info.size;
+    meta.wdate = node->info.wdate;
+    meta.wtime = node->info.wtime;
+    node->dirty = false;
+    spinlock_unlock(&vol->lock);
+
+    int result = dirent_store(vol, &meta);
+    if (result < 0) {
+        spinlock_lock(&vol->lock);
+        node->dirty = true;
+        spinlock_unlock(&vol->lock);
+    }
+    return result;
+}
+
+/* Marca o no como modificado agora (data/hora + atributo arquivo). `lock`
+ * NAO deve estar preso. `new_size` (se != NULL) so cresce. */
+static void node_touch(struct fat32_vol* vol, struct fat32_node* node,
+                       const uint32_t* grow_to) {
+    uint16_t date, time;
+    fat_now(&date, &time);
+    spinlock_lock(&vol->lock);
+    if (grow_to && *grow_to > node->info.size) node->info.size = *grow_to;
+    node->info.wdate = date;
+    node->info.wtime = time;
+    node->info.attr = (uint8_t)(node->info.attr | FAT32_ATTR_ARCH);
+    node->dirty = true;
+    spinlock_unlock(&vol->lock);
+}
+
+/* Aloca um cluster novo, zera se `zero` e o liga depois de `prev` (0 = nao
+ * liga: primeiro cluster do arquivo). Em erro nada fica alocado. */
+static int chain_grow(struct fat32_vol* vol, uint32_t prev, bool zero,
+                      uint32_t* out) {
+    uint32_t fresh;
+    int result = cluster_alloc(vol, &fresh);
+    if (result < 0) return result;
+    if (zero) result = cluster_zero(vol, fresh);
+    if (result == 0 && prev) result = fat_set(vol, prev, fresh);
+    if (result < 0) {
+        (void)cluster_free_chain(vol, fresh);
+        return result;
+    }
+    *out = fresh;
+    return 0;
+}
+
+/* Motor de escrita: grava `count` bytes de `src` (NULL = zeros) a partir de
+ * `offset`, alocando clusters conforme preciso. Nao mexe em info.size (o
+ * chamador atualiza com o que foi escrito). `*done_out` = bytes gravados,
+ * mesmo em erro. Clusters totalmente cobertos pela escrita nao sao zerados
+ * antes; os demais sim (nunca vazam dados antigos do disco). */
+static int file_put(struct fat32_vol* vol, struct fat32_node* node,
+                    uint32_t offset, const uint8_t* src, uint32_t count,
+                    uint32_t* done_out) {
+    uint32_t shift = vol->spc_shift + 9u;
+    uint32_t cmask = (1u << shift) - 1u;
+    uint32_t csize = cmask + 1u;
+    uint32_t index = offset >> shift;
+    bool first_covered = (offset & cmask) == 0 && count >= csize;
+    uint32_t done = 0, at, cluster;
+    int error = 0;
+    *done_out = 0;
+
+    spinlock_lock(&vol->lock);
+    if (node->chain_cluster && node->chain_index <= index) {
+        at = node->chain_index;
+        cluster = node->chain_cluster;
+    } else {
+        at = 0;
+        cluster = node->info.first_cluster;
+    }
+    spinlock_unlock(&vol->lock);
+
+    if (cluster < 2u) {                          /* arquivo ainda sem cadeia */
+        error = chain_grow(vol, 0, !(index == 0 && first_covered), &cluster);
+        if (error) return error;
+        at = 0;
+        spinlock_lock(&vol->lock);
+        node->info.first_cluster = cluster;
+        node->chain_index = 0;
+        node->chain_cluster = cluster;
+        node->dirty = true;
+        spinlock_unlock(&vol->lock);
+    }
+    while (at < index) {                         /* ate o cluster do offset */
+        uint32_t next = 0;
+        int link = fat_next(vol, cluster, &next);
+        if (link < 0) return link;
+        if (link == 0) {                         /* cadeia acabou: estende */
+            error = chain_grow(vol, cluster, !(at + 1u == index && first_covered),
+                               &next);
+            if (error) return error;
+        }
+        cluster = next;
+        at++;
+    }
+
+    while (done < count) {
+        uint32_t pos = offset + done;
+        uint32_t in_cluster = pos & cmask;
+        uint32_t sector = in_cluster >> 9;
+        uint32_t in_sector = in_cluster & (BLK_SECTOR_SIZE - 1u);
+        uint64_t lba = cluster_lba(vol, cluster) + sector;
+        uint32_t remaining = count - done;
+        uint32_t chunk;
+        if (in_sector == 0 && remaining >= BLK_SECTOR_SIZE) {
+            uint32_t want = remaining >> 9;      /* setores inteiros */
+            if (want > vol->spc - sector) want = vol->spc - sector;
+            chunk = want << 9;
+            if (src) {
+                error = blk_write(vol->dev, lba, want, src + done);
+            } else {
+                for (uint32_t w = 0; w < want && !error; w++) {
+                    struct blkbuf* zb;
+                    error = bnew(vol->dev, lba + w, &zb);   /* zerado, sujo */
+                    if (!error) brelse(zb);
+                }
+            }
+        } else {
+            struct blkbuf* buf;
+            chunk = BLK_SECTOR_SIZE - in_sector;
+            if (chunk > remaining) chunk = remaining;
+            error = bread(vol->dev, lba, &buf);
+            if (!error) {
+                if (src) memcpy(buf->data + in_sector, src + done, chunk);
+                else memset(buf->data + in_sector, 0, chunk);
+                bdirty(buf);
+                brelse(buf);
+            }
+        }
+        if (error) break;
+        done += chunk;
+        if (done < count && ((offset + done) & cmask) == 0) {  /* proximo */
+            uint32_t next = 0;
+            int link = fat_next(vol, cluster, &next);
+            if (link < 0) {
+                error = link;
+                break;
+            }
+            if (link == 0) {
+                error = chain_grow(vol, cluster, (count - done) < csize, &next);
+                if (error) break;
+            }
+            cluster = next;
+            at++;
+        }
+    }
+
+    spinlock_lock(&vol->lock);                   /* cache do ultimo cluster */
+    node->chain_index = at;
+    node->chain_cluster = cluster;
+    spinlock_unlock(&vol->lock);
+    *done_out = done;
+    return error;
+}
+
+/* Verificacoes comuns de escrita no no. */
+static int write_check(const struct fat32_vol* vol, const struct fat32_node* node) {
+    if (!vol || !node) return -EINVAL;
+    if (node->info.attr & FAT32_ATTR_DIR) return -EISDIR;
+    if (vol->readonly) return -EROFS;
+    if (node->info.attr & FAT32_ATTR_RO) return -EACCES;
+    return 0;
+}
+
+ssize_t fat32_write(struct fat32_vol* vol, struct fat32_node* node,
+                    uint32_t offset, const void* buffer, size_t count) {
+    int check = write_check(vol, node);
+    if (check < 0) return check;
+    if (!buffer && count) return -EINVAL;
+    if (count == 0) return 0;
+    if (offset == FAT32_MAX_SIZE) return -EFBIG;
+    if (count > 0x7FFFFFFFu) count = 0x7FFFFFFFu;
+    if (count > (size_t)(FAT32_MAX_SIZE - offset))
+        count = (size_t)(FAT32_MAX_SIZE - offset);   /* escrita parcial */
+
+    uint32_t size = node->info.size;
+    if (offset > size) {                         /* buraco: preenche de zeros */
+        uint32_t hole_done;
+        int result = file_put(vol, node, size, NULL, offset - size, &hole_done);
+        if (hole_done) {
+            uint32_t grown = size + hole_done;
+            node_touch(vol, node, &grown);
+        }
+        if (result < 0) return result;
+    }
+
+    uint32_t done;
+    int result = file_put(vol, node, offset, buffer, (uint32_t)count, &done);
+    uint32_t end = offset + done;
+    node_touch(vol, node, done ? &end : NULL);
+    if (done) return (ssize_t)done;
+    return result < 0 ? result : -EIO;
+}
+
+int fat32_truncate(struct fat32_vol* vol, struct fat32_node* node,
+                   uint32_t new_size) {
+    int check = write_check(vol, node);
+    if (check < 0) return check;
+    uint32_t size = node->info.size;
+    if (new_size == size) return 0;
+
+    if (new_size > size) {                       /* crescer = zeros */
+        uint32_t done;
+        int result = file_put(vol, node, size, NULL, new_size - size, &done);
+        if (done) {
+            uint32_t grown = size + done;
+            node_touch(vol, node, &grown);
+        }
+        return result;
+    }
+
+    uint32_t shift = vol->spc_shift + 9u;
+    uint32_t cmask = (1u << shift) - 1u;
+    uint32_t keep = (new_size >> shift) + ((new_size & cmask) ? 1u : 0u);
+
+    /* 1. localiza o ultimo cluster que fica e o inicio da cauda a liberar. */
+    uint32_t old_first = node->info.first_cluster;
+    uint32_t last = 0, tail = 0;
+    if (keep && old_first >= 2u) {
+        uint32_t at, cluster;
+        spinlock_lock(&vol->lock);
+        if (node->chain_cluster && node->chain_index <= keep - 1u) {
+            at = node->chain_index;
+            cluster = node->chain_cluster;
+        } else {
+            at = 0;
+            cluster = old_first;
+        }
+        spinlock_unlock(&vol->lock);
+        bool short_chain = false;
+        while (at < keep - 1u) {
+            uint32_t next = 0;
+            int link = fat_next(vol, cluster, &next);
+            if (link < 0) return link;
+            if (link == 0) {                     /* cadeia menor que o tamanho */
+                short_chain = true;
+                break;
+            }
+            cluster = next;
+            at++;
+        }
+        if (!short_chain) {
+            uint32_t next = 0;
+            int link = fat_next(vol, cluster, &next);
+            if (link < 0) return link;
+            last = cluster;
+            if (link > 0) tail = next;
+        }
+    } else if (!keep) {
+        tail = old_first;
+    }
+
+    /* 2. grava a entrada de diretorio ANTES de mexer na FAT (se algo falhar
+     * no meio, sobra cluster perdido, nunca cadeia compartilhada). */
+    uint16_t date, time;
+    fat_now(&date, &time);
+    uint32_t saved_size, saved_first;
+    uint16_t saved_date, saved_time;
+    bool saved_dirty;
+    spinlock_lock(&vol->lock);
+    saved_size = node->info.size;
+    saved_first = node->info.first_cluster;
+    saved_date = node->info.wdate;
+    saved_time = node->info.wtime;
+    saved_dirty = node->dirty;
+    node->info.size = new_size;
+    if (!keep) node->info.first_cluster = 0;
+    node->info.wdate = date;
+    node->info.wtime = time;
+    node->info.attr = (uint8_t)(node->info.attr | FAT32_ATTR_ARCH);
+    node->dirty = true;
+    if (node->chain_index >= keep) {             /* cache apontaria p/ a cauda */
+        node->chain_index = 0;
+        node->chain_cluster = 0;
+    }
+    spinlock_unlock(&vol->lock);
+    int result = fat32_node_sync(vol, node);
+    if (result < 0) {                            /* desfaz o estado em memoria */
+        spinlock_lock(&vol->lock);
+        node->info.size = saved_size;
+        node->info.first_cluster = saved_first;
+        node->info.wdate = saved_date;
+        node->info.wtime = saved_time;
+        node->dirty = saved_dirty;
+        node->chain_index = 0;
+        node->chain_cluster = 0;
+        spinlock_unlock(&vol->lock);
+        return result;
+    }
+
+    /* 3. novo fim de cadeia e libera a cauda. */
+    if (keep && last) {
+        result = fat_set(vol, last, FAT32_EOC);
+        if (result < 0) return result;
+    }
+    if (tail) result = cluster_free_chain(vol, tail);
+    return result;
+}
+
+int fat32_sync(struct fat32_vol* vol) {
+    if (!vol) return -EINVAL;
+    if (vol->readonly) return 0;
+    uint32_t free_count, next_free;
+    bool dirty;
+    spinlock_lock(&vol->lock);
+    dirty = vol->fsinfo_dirty;
+    free_count = vol->free_count;
+    next_free = vol->next_free;
+    vol->fsinfo_dirty = false;
+    spinlock_unlock(&vol->lock);
+
+    if (dirty && vol->fsinfo_lba) {
+        struct blkbuf* buf;
+        int result = bread(vol->dev, vol->fsinfo_lba, &buf);
+        if (result < 0) {
+            spinlock_lock(&vol->lock);
+            vol->fsinfo_dirty = true;
+            spinlock_unlock(&vol->lock);
+            return result;
+        }
+        put32(buf->data + 488, free_count);
+        put32(buf->data + 492, next_free);
+        bdirty(buf);
+        brelse(buf);
+    }
+    return blk_flush(vol->dev);
+}
+
 /* ----------------------------------------------------------------- vnode */
 
 #define FAT32_VNODE_PATH_MAX sizeof(((struct vnode*)0)->path)
@@ -549,6 +1206,7 @@ struct fat32_vnode {
     struct fat32_node node;
     struct fat32_vol* vol;
     size_t opens;               /* descritores apontando para este vnode */
+    struct fat32_vnode* next;   /* lista vol->open_list */
 };
 
 static struct vnode_ops g_fat32_ops;
@@ -569,11 +1227,14 @@ static ssize_t fv_read(struct vnode* vn, void* buffer, size_t count,
 
 static ssize_t fv_write(struct vnode* vn, const void* buffer, size_t count,
                         int64_t offset) {
-    (void)vn;
-    (void)buffer;
-    (void)count;
-    (void)offset;
-    return -EROFS;
+    struct fat32_vnode* fv = fv_of(vn);
+    if (!fv) return -EINVAL;
+    if (offset < 0) return -EINVAL;
+    if (offset > (int64_t)FAT32_MAX_SIZE) return -EFBIG;
+    ssize_t result = fat32_write(fv->vol, &fv->node, (uint32_t)offset, buffer,
+                                 count);
+    fv->vn.size = fv->node.info.size;
+    return result;
 }
 
 static void fv_dup(struct vnode* vn) {
@@ -584,24 +1245,57 @@ static void fv_dup(struct vnode* vn) {
     spinlock_unlock(&fv->vol->lock);
 }
 
+/* Ultimo descritor: grava a entrada de diretorio e libera o vnode. O no
+ * continua na lista (e contado em open_nodes) ate o fim, entao o volume nao
+ * pode ser desmontado no meio do flush. Se alguem reabriu o arquivo nesse
+ * intervalo (opens > 0) o vnode fica vivo para ele. */
 static void fv_release(struct vnode* vn) {
     struct fat32_vnode* fv = fv_of(vn);
     if (!fv) return;
     struct fat32_vol* vol = fv->vol;
     bool last = false;
     spinlock_lock(&vol->lock);
-    if (fv->opens && --fv->opens == 0) {
+    if (fv->opens && --fv->opens == 0) last = true;
+    spinlock_unlock(&vol->lock);
+    if (!last) return;
+
+    int result = fat32_node_sync(vol, &fv->node);
+    if (result < 0)
+        klog_warn("fat32", "%s: falha ao gravar entrada de diretorio (%d)",
+                  vol->dev->name, result);
+
+    bool do_free = false;
+    spinlock_lock(&vol->lock);
+    if (fv->opens == 0) {
+        struct fat32_vnode** link = &vol->open_list;
+        while (*link && *link != fv) link = &(*link)->next;
+        if (*link) *link = fv->next;
         vol->open_nodes--;
-        last = true;
+        do_free = true;
     }
     spinlock_unlock(&vol->lock);
-    if (last) kfree(fv);
+    if (do_free) kfree(fv);
 }
 
 static struct vnode_ops g_fat32_ops = {
     .open = NULL, .close = NULL, .read = fv_read, .write = fv_write,
     .readdir = NULL, .dup = fv_dup, .release = fv_release,
 };
+
+/* Dois descritores abertos para o mesmo arquivo compartilham UM vnode/no
+ * (mesmo size, cadeia e entrada de diretorio); a chave e a posicao da
+ * entrada 8.3 (a raiz tem dir_cluster 0). Chamar com `lock` preso. */
+static struct fat32_vnode* open_find(struct fat32_vol* vol,
+                                     const struct fat32_info* info) {
+    for (struct fat32_vnode* fv = vol->open_list; fv; fv = fv->next) {
+        const struct fat32_info* other = &fv->node.info;
+        if (other->dir_cluster == info->dir_cluster &&
+            (info->dir_cluster != 0 ? other->dir_pos == info->dir_pos
+                                    : (other->attr & FAT32_ATTR_DIR) != 0))
+            return fv;
+    }
+    return NULL;
+}
 
 struct vnode* fat32_vnode_open(struct fat32_vol* vol, const char* path,
                                int flags, int* error) {
@@ -617,14 +1311,26 @@ struct vnode* fat32_vnode_open(struct fat32_vol* vol, const char* path,
     }
     struct fat32_info info;
     int result = fat32_lookup(vol, path, &info);
-    if (result == -ENOENT && (flags & O_CREAT)) result = -EROFS;
+    if (result == -ENOENT && (flags & O_CREAT))
+        result = vol->readonly ? -EROFS : -ENOSYS;   /* create: etapa 3.2 */
     if (result < 0) {
         *error = result;
         return NULL;
     }
-    if ((flags & O_ACCMODE) != O_RDONLY || (flags & (O_TRUNC | O_APPEND))) {
-        *error = (info.attr & FAT32_ATTR_DIR) ? -EISDIR : -EROFS;
-        return NULL;
+    bool want_write = (flags & O_ACCMODE) != O_RDONLY || (flags & O_TRUNC);
+    if (want_write) {
+        if (info.attr & FAT32_ATTR_DIR) {
+            *error = -EISDIR;
+            return NULL;
+        }
+        if (vol->readonly) {
+            *error = -EROFS;
+            return NULL;
+        }
+        if (info.attr & FAT32_ATTR_RO) {
+            *error = -EACCES;
+            return NULL;
+        }
     }
 
     struct fat32_vnode* fv = kzalloc(sizeof(*fv));
@@ -644,9 +1350,31 @@ struct vnode* fat32_vnode_open(struct fat32_vol* vol, const char* path,
     fat32_node_init(&fv->node, &info);
     fv->vol = vol;
     fv->opens = 1;
+
     spinlock_lock(&vol->lock);
-    vol->open_nodes++;
+    struct fat32_vnode* shared = open_find(vol, &info);
+    if (shared) {
+        shared->opens++;
+    } else {
+        fv->next = vol->open_list;
+        vol->open_list = fv;
+        vol->open_nodes++;
+    }
     spinlock_unlock(&vol->lock);
+    if (shared) {
+        kfree(fv);
+        fv = shared;
+    }
+
+    if ((flags & O_TRUNC) && fv->vn.type == VNODE_FILE) {
+        result = fat32_truncate(vol, &fv->node, 0);
+        fv->vn.size = fv->node.info.size;
+        if (result < 0) {
+            fv_release(&fv->vn);
+            *error = result;
+            return NULL;
+        }
+    }
     *error = 0;
     return &fv->vn;
 }
