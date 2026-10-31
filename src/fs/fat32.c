@@ -41,6 +41,7 @@ struct fat32_vol {
     uint32_t free_count;        /* FAT32_UNKNOWN se desconhecido (lock) */
     uint32_t next_free;         /* dica de alocacao (lock) */
     bool fsinfo_dirty;          /* (lock) */
+    bool dir_busy;              /* operacao de diretorio em curso (lock) */
     uint64_t data_lba;          /* setor do cluster 2 */
     uint32_t clusters;          /* clusters de dados (numerados 2..clusters+1) */
     uint32_t root_cluster;
@@ -1312,7 +1313,7 @@ struct vnode* fat32_vnode_open(struct fat32_vol* vol, const char* path,
     struct fat32_info info;
     int result = fat32_lookup(vol, path, &info);
     if (result == -ENOENT && (flags & O_CREAT))
-        result = vol->readonly ? -EROFS : -ENOSYS;   /* create: etapa 3.2 */
+        result = fat32_create(vol, path, &info);     /* -EROFS em volume RO */
     if (result < 0) {
         *error = result;
         return NULL;
@@ -1394,4 +1395,640 @@ int fat32_vnode_readdir(struct vnode* dir, size_t index, struct dirent* entry) {
     entry->d_off = (uint32_t)(index + 1u);
     entry->d_reclen = (uint16_t)sizeof(*entry);
     return 1;
+}
+
+/* ============================================ operacoes de diretorio (3.2) */
+
+#define FAT32_DIR_MAX_ENTRIES 65536u    /* limite da especificacao FAT */
+#define FAT32_PATH_BUF        256u      /* copia local do caminho do pai */
+
+static int dirop_enter(struct fat32_vol* vol) {
+    spinlock_lock(&vol->lock);
+    if (vol->dir_busy) {
+        spinlock_unlock(&vol->lock);
+        return -EBUSY;
+    }
+    vol->dir_busy = true;
+    spinlock_unlock(&vol->lock);
+    return 0;
+}
+
+static void dirop_leave(struct fat32_vol* vol) {
+    spinlock_lock(&vol->lock);
+    vol->dir_busy = false;
+    spinlock_unlock(&vol->lock);
+}
+
+static bool entry_is_open(struct fat32_vol* vol, const struct fat32_info* info) {
+    spinlock_lock(&vol->lock);
+    bool open = open_find(vol, info) != NULL;
+    spinlock_unlock(&vol->lock);
+    return open;
+}
+
+static bool str_same(const char* a, const char* b) {
+    size_t n = strlen(a);
+    return n == strlen(b) && memcmp(a, b, n) == 0;
+}
+
+/* ---- nomes ---- */
+
+/* UTF-8 -> UTF-16. n unidades (>= 1) ou -errno. Rejeita sequencias invalidas,
+ * controles e \ / : * ? " < > | */
+static int utf8_to_utf16(const char* s, uint16_t* out, uint32_t cap) {
+    const uint8_t* p = (const uint8_t*)s;
+    uint32_t n = 0;
+    while (*p) {
+        uint32_t cp, extra;
+        uint8_t c = *p++;
+        if (c < 0x80) { cp = c; extra = 0; }
+        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1Fu; extra = 1; }
+        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0Fu; extra = 2; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07u; extra = 3; }
+        else return -EINVAL;
+        for (uint32_t i = 0; i < extra; i++) {
+            if ((*p & 0xC0) != 0x80) return -EINVAL;
+            cp = (cp << 6) | (*p++ & 0x3Fu);
+        }
+        if ((extra == 1 && cp < 0x80) || (extra == 2 && cp < 0x800) ||
+            (extra == 3 && cp < 0x10000) || cp > 0x10FFFF ||
+            (cp >= 0xD800 && cp <= 0xDFFF))
+            return -EINVAL;
+        if (cp < 0x20 || cp == '\\' || cp == '/' || cp == ':' || cp == '*' ||
+            cp == '?' || cp == '"' || cp == '<' || cp == '>' || cp == '|')
+            return -EINVAL;
+        if (cp >= 0x10000) {
+            if (n + 2 > cap) return -ENAMETOOLONG;
+            cp -= 0x10000;
+            out[n++] = (uint16_t)(0xD800u | (cp >> 10));
+            out[n++] = (uint16_t)(0xDC00u | (cp & 0x3FFu));
+        } else {
+            if (n + 1 > cap) return -ENAMETOOLONG;
+            out[n++] = (uint16_t)cp;
+        }
+    }
+    return (int)n;
+}
+
+/* Valida um nome de componente e devolve o numero de unidades UTF-16. */
+static int name_units(const char* name, uint16_t* units) {
+    size_t len = strlen(name);
+    if (len == 0) return -EINVAL;
+    if (len > FAT32_NAME_MAX) return -ENAMETOOLONG;
+    if ((len == 1 && name[0] == '.') || (len == 2 && name[0] == '.' && name[1] == '.'))
+        return -EINVAL;
+    if (name[len - 1] == '.' || name[len - 1] == ' ') return -EINVAL;
+    return utf8_to_utf16(name, units, 255u);
+}
+
+struct short_gen {
+    uint8_t raw[11];
+    uint8_t nt;             /* bits 0x08 (base minuscula) / 0x10 (ext) */
+    bool lossy;             /* precisa de ~N */
+    bool lfn;               /* precisa de entradas LFN */
+    uint32_t base_len;      /* caracteres da base antes do ~N */
+};
+
+static bool short_char_ok(uint8_t c) {
+    static const char extra[] = "!#$%&'()-@^_`{}~";
+    if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) return true;
+    for (size_t i = 0; extra[i]; i++)
+        if ((uint8_t)extra[i] == c) return true;
+    return false;
+}
+
+/* Base do nome 8.3 (maiusculas, invalidos -> '_', truncado); sem o ~N. */
+static void short_gen_base(const char* name, struct short_gen* g) {
+    size_t len = strlen(name);
+    memset(g, 0, sizeof(*g));
+    memset(g->raw, ' ', 11);
+    size_t start = 0;
+    while (start < len && (name[start] == '.' || name[start] == ' ')) {
+        start++;
+        g->lossy = true;
+    }
+    size_t dot = len;                          /* ultimo '.' apos `start` */
+    for (size_t i = start; i < len; i++)
+        if (name[i] == '.') dot = i;
+    bool bl = false, bu = false, el = false, eu = false;
+    uint32_t bi = 0, ei = 0;
+    for (size_t i = start; i < dot; i++) {
+        uint8_t c = (uint8_t)name[i];
+        if (c == ' ' || c == '.') { g->lossy = true; continue; }
+        if (c >= 'a' && c <= 'z') { bl = true; c = (uint8_t)(c - 32); }
+        else if (c >= 'A' && c <= 'Z') bu = true;
+        if (!short_char_ok(c)) { c = '_'; g->lossy = true; }
+        if (bi < 8) g->raw[bi++] = c; else g->lossy = true;
+    }
+    for (size_t i = dot + 1; i < len; i++) {
+        uint8_t c = (uint8_t)name[i];
+        if (c == ' ') { g->lossy = true; continue; }
+        if (c >= 'a' && c <= 'z') { el = true; c = (uint8_t)(c - 32); }
+        else if (c >= 'A' && c <= 'Z') eu = true;
+        if (!short_char_ok(c)) { c = '_'; g->lossy = true; }
+        if (ei < 3) g->raw[8 + ei++] = c; else g->lossy = true;
+    }
+    if (bi == 0) { g->raw[bi++] = '_'; g->lossy = true; }
+    g->base_len = bi;
+    if ((bl && bu) || (el && eu)) g->lfn = true;   /* caixa mista: LFN */
+    else g->nt = (uint8_t)((bl ? 0x08u : 0) | (el ? 0x10u : 0));
+    if (g->lossy) g->lfn = true;
+}
+
+static int dir_has_short(struct fat32_vol* vol, uint32_t first,
+                         const uint8_t* raw, bool* found) {
+    struct fat32_dircur cur;
+    uint8_t e[32];
+    cur_init(&cur, first);
+    *found = false;
+    for (;;) {
+        int result = cur_peek(vol, &cur, e);
+        if (result <= 0) return result;
+        if (e[0] == 0x00) return 0;
+        if (e[0] != 0xE5 && (e[11] & 0x3Fu) != 0x0Fu && memcmp(e, raw, 11) == 0) {
+            *found = true;
+            return 0;
+        }
+        result = cur_advance(vol, &cur);
+        if (result < 0) return result;
+    }
+}
+
+/* Escolhe NOME~N.EXT livre quando o nome nao cabe em 8.3. */
+static int short_pick_tail(struct fat32_vol* vol, uint32_t first,
+                           struct short_gen* g) {
+    uint8_t base[8], ext[3];
+    memcpy(base, g->raw, 8);
+    memcpy(ext, g->raw + 8, 3);
+    for (uint32_t n = 1; n <= 999999u; n++) {
+        char digits[8];
+        uint32_t d = 0, v = n;
+        while (v) { digits[d++] = (char)('0' + (v % 10u)); v /= 10u; }
+        uint32_t keep = g->base_len;
+        if (keep > 8u - 1u - d) keep = 8u - 1u - d;
+        uint8_t raw[11];
+        memset(raw, ' ', 11);
+        memcpy(raw, base, keep);
+        raw[keep] = '~';
+        for (uint32_t i = 0; i < d; i++) raw[keep + 1u + i] = (uint8_t)digits[d - 1u - i];
+        memcpy(raw + 8, ext, 3);
+        bool found;
+        int result = dir_has_short(vol, first, raw, &found);
+        if (result < 0) return result;
+        if (!found) {
+            memcpy(g->raw, raw, 11);
+            return 0;
+        }
+    }
+    return -EEXIST;
+}
+
+/* ---- entradas de diretorio ---- */
+
+static int ent_write(struct fat32_vol* vol, const struct fat32_dircur* c,
+                     const uint8_t* e) {
+    struct blkbuf* buf;
+    int result = bread(vol->dev, cluster_lba(vol, c->cluster) + (c->pos >> 4), &buf);
+    if (result < 0) return result;
+    memcpy(buf->data + (c->pos & 15u) * 32u, e, 32);
+    bdirty(buf);
+    brelse(buf);
+    return 0;
+}
+
+static int ent_mark_deleted(struct fat32_vol* vol, const struct fat32_dircur* c) {
+    struct blkbuf* buf;
+    int result = bread(vol->dev, cluster_lba(vol, c->cluster) + (c->pos >> 4), &buf);
+    if (result < 0) return result;
+    buf->data[(c->pos & 15u) * 32u] = 0xE5;
+    bdirty(buf);
+    brelse(buf);
+    return 0;
+}
+
+/* Acha `need` entradas livres consecutivas (podem cruzar clusters); estende o
+ * diretorio com clusters zerados quando falta espaco. Tudo apos a primeira
+ * entrada 0x00 e tratado como livre (imagens validas tem zeros ali). */
+static int dir_alloc_slots(struct fat32_vol* vol, uint32_t first, uint32_t need,
+                           struct fat32_dircur* start_out) {
+    struct fat32_dircur cur, run_start;
+    uint32_t run = 0, last_cluster = first;
+    bool tail = false;
+    uint8_t e[32];
+    memset(&run_start, 0, sizeof(run_start));
+    cur_init(&cur, first);
+    for (;;) {
+        int result = cur_peek(vol, &cur, e);
+        if (result < 0) return result;
+        if (result == 0) break;                      /* fim da cadeia */
+        last_cluster = cur.cluster;
+        if (e[0] == 0x00) tail = true;
+        if (tail || e[0] == 0xE5) {
+            if (run == 0) run_start = cur;
+            if (++run == need) {
+                *start_out = run_start;
+                return 0;
+            }
+        } else {
+            run = 0;
+        }
+        result = cur_advance(vol, &cur);
+        if (result < 0) return result;
+    }
+    uint32_t nclusters = cur.steps;
+    while (run < need) {                             /* estende o diretorio */
+        if ((nclusters + 1u) > FAT32_DIR_MAX_ENTRIES / vol->entries_per_cluster)
+            return -ENOSPC;
+        uint32_t fresh;
+        int result = chain_grow(vol, last_cluster, true, &fresh);
+        if (result < 0) return result;
+        if (run == 0) {
+            run_start.cluster = fresh;
+            run_start.pos = 0;
+            run_start.steps = 0;
+        }
+        run += vol->entries_per_cluster;
+        last_cluster = fresh;
+        nclusters++;
+    }
+    *start_out = run_start;
+    return 0;
+}
+
+/* Cria a(s) entrada(s) (LFN + 8.3) de `name` no diretorio `dir_first`.
+ * Nao verifica se o nome ja existe (o chamador faz). */
+static int dir_add_entry(struct fat32_vol* vol, uint32_t dir_first,
+                         const char* name, uint8_t attr, uint32_t first_cluster,
+                         uint32_t size, uint16_t wdate, uint16_t wtime,
+                         struct fat32_info* out) {
+    static const uint8_t lfn_offsets[13] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22,
+                                            24, 28, 30};
+    uint16_t units[255];
+    int nunits = name_units(name, units);
+    if (nunits < 0) return nunits;
+
+    struct short_gen g;
+    short_gen_base(name, &g);
+    if (g.lossy) {
+        int result = short_pick_tail(vol, dir_first, &g);
+        if (result < 0) return result;
+    }
+    uint32_t lfn_count = g.lfn ? ((uint32_t)nunits + 12u) / 13u : 0;
+    uint8_t checksum = short_checksum(g.raw);
+
+    uint8_t ents[FAT32_LFN_SLOTS + 1u][32];
+    memset(ents, 0, sizeof(ents));
+    for (uint32_t i = 0; i < lfn_count; i++) {
+        uint32_t seq = lfn_count - i;                /* na ordem do disco */
+        uint8_t* e = ents[i];
+        e[0] = (uint8_t)(seq | (i == 0 ? 0x40u : 0u));
+        e[11] = 0x0F;
+        e[13] = checksum;
+        for (uint32_t j = 0; j < 13u; j++) {
+            uint32_t idx = (seq - 1u) * 13u + j;
+            uint16_t u = idx < (uint32_t)nunits ? units[idx]
+                         : (idx == (uint32_t)nunits ? 0x0000u : 0xFFFFu);
+            put16(e + lfn_offsets[j], u);
+        }
+    }
+    uint16_t now_date, now_time;
+    fat_now(&now_date, &now_time);
+    uint8_t* e = ents[lfn_count];
+    memcpy(e, g.raw, 11);
+    e[11] = attr;
+    e[12] = g.nt;
+    put16(e + 14, now_time);                         /* criacao */
+    put16(e + 16, now_date);
+    put16(e + 18, now_date);                         /* ultimo acesso */
+    put16(e + 20, first_cluster >> 16);
+    put16(e + 22, wtime);
+    put16(e + 24, wdate);
+    put16(e + 26, first_cluster);
+    put32(e + 28, size);
+
+    struct fat32_dircur cur;
+    int result = dir_alloc_slots(vol, dir_first, lfn_count + 1u, &cur);
+    if (result < 0) return result;
+    uint32_t ent_cluster = 0, ent_pos = 0;
+    for (uint32_t i = 0; i <= lfn_count; i++) {      /* 8.3 por ultimo */
+        result = ent_write(vol, &cur, ents[i]);
+        if (result < 0) return result;
+        ent_cluster = cur.cluster;
+        ent_pos = cur.pos;
+        if (i < lfn_count) {
+            result = cur_advance(vol, &cur);
+            if (result < 0) return result;
+        }
+    }
+    if (out) {
+        memset(out, 0, sizeof(*out));
+        build_short_name(e, out);
+        if (g.lfn) strcpy(out->name, name);
+        out->attr = attr;
+        out->first_cluster = first_cluster;
+        out->size = (attr & FAT32_ATTR_DIR) ? 0 : size;
+        out->wdate = wdate;
+        out->wtime = wtime;
+        out->dir_cluster = ent_cluster;
+        out->dir_pos = ent_pos;
+    }
+    return 0;
+}
+
+/* Apaga (0xE5) a entrada 8.3 de `info` e as LFN que a precedem (mesmo contiguo,
+ * inclusive atraves de clusters). Nao libera a cadeia de dados. */
+static int entry_delete(struct fat32_vol* vol, uint32_t parent_first,
+                        const struct fat32_info* info) {
+    struct fat32_dircur cur, start;
+    bool have = false;
+    uint8_t e[32];
+    memset(&start, 0, sizeof(start));
+    cur_init(&cur, parent_first);
+    for (;;) {
+        int result = cur_peek(vol, &cur, e);
+        if (result < 0) return result;
+        if (result == 0) return -ENOENT;
+        if (cur.cluster == info->dir_cluster && cur.pos == info->dir_pos) {
+            if (!have) start = cur;
+            break;
+        }
+        if (e[0] == 0x00) return -ENOENT;
+        if (e[0] != 0xE5 && (e[11] & 0x3Fu) == 0x0Fu) {
+            if (!have) { start = cur; have = true; }
+        } else {
+            have = false;
+        }
+        result = cur_advance(vol, &cur);
+        if (result < 0) return result;
+    }
+    cur = start;
+    for (;;) {
+        int result = ent_mark_deleted(vol, &cur);
+        if (result < 0) return result;
+        if (cur.cluster == info->dir_cluster && cur.pos == info->dir_pos) return 0;
+        result = cur_advance(vol, &cur);
+        if (result < 0) return result;
+    }
+}
+
+/* ---- resolucao de caminhos ---- */
+
+/* Separa `path` em pai + folha. `parent` = entrada do diretorio pai (tem que
+ * ser diretorio), `pp` = copia do caminho do pai, `leaf` = ultimo componente.
+ * 0 se a folha existe (*info), -ENOENT se nao existe (pai/folha validos). */
+static int resolve_leaf(struct fat32_vol* vol, const char* path,
+                        struct fat32_info* parent, char* pp, char* leaf,
+                        struct fat32_info* info) {
+    size_t end = strlen(path);
+    while (end > 0 && path[end - 1] == '/') end--;
+    size_t start = end;
+    while (start > 0 && path[start - 1] != '/') start--;
+    size_t leaf_len = end - start;
+    if (leaf_len == 0) return -EINVAL;               /* raiz / vazio */
+    if (leaf_len > FAT32_NAME_MAX) return -ENAMETOOLONG;
+    size_t plen = start;
+    while (plen > 0 && path[plen - 1] == '/') plen--;
+    if (plen >= FAT32_PATH_BUF) return -ENAMETOOLONG;
+    memcpy(leaf, path + start, leaf_len);
+    leaf[leaf_len] = '\0';
+    memcpy(pp, path, plen);
+    pp[plen] = '\0';
+    if ((leaf_len == 1 && leaf[0] == '.') ||
+        (leaf_len == 2 && leaf[0] == '.' && leaf[1] == '.'))
+        return -EINVAL;
+    int result = fat32_lookup(vol, pp, parent);
+    if (result < 0) return result;
+    if (!(parent->attr & FAT32_ATTR_DIR)) return -ENOTDIR;
+    return dir_find(vol, parent->first_cluster, leaf, info);
+}
+
+static int dir_is_empty(struct fat32_vol* vol, const struct fat32_info* dir) {
+    if (dir->first_cluster == 0) return -EIO;
+    struct fat32_dircur cur;
+    struct fat32_info tmp;
+    cur_init(&cur, dir->first_cluster);
+    int result = dir_next(vol, &cur, &tmp);
+    if (result < 0) return result;
+    return result == 0 ? 0 : -ENOTEMPTY;
+}
+
+/* Aponta o ".." do diretorio `dir_cluster` para `parent_first` (0 = raiz). */
+static int set_dotdot(struct fat32_vol* vol, uint32_t dir_cluster,
+                      uint32_t parent_first) {
+    struct blkbuf* buf;
+    int result = bread(vol->dev, cluster_lba(vol, dir_cluster), &buf);
+    if (result < 0) return result;
+    uint8_t* e = buf->data + 32;
+    if (e[0] != '.' || e[1] != '.') {
+        brelse(buf);
+        return -EIO;
+    }
+    uint32_t value = parent_first == vol->root_cluster ? 0 : parent_first;
+    put16(e + 20, value >> 16);
+    put16(e + 26, value);
+    bdirty(buf);
+    brelse(buf);
+    return 0;
+}
+
+/* `cluster` e algum componente (ou o proprio) do caminho `pp`? */
+static int path_has_cluster(struct fat32_vol* vol, const char* pp,
+                            uint32_t cluster) {
+    char buf[FAT32_PATH_BUF];
+    size_t len = strlen(pp);
+    for (size_t i = 1; i <= len; i++) {
+        if (pp[i] != '/' && pp[i] != '\0') continue;
+        if (pp[i - 1] == '/') continue;
+        struct fat32_info info;
+        memcpy(buf, pp, i);
+        buf[i] = '\0';
+        int result = fat32_lookup(vol, buf, &info);
+        if (result < 0) return result;
+        if (info.first_cluster == cluster) return 1;
+    }
+    return 0;
+}
+
+/* ---- operacoes ---- */
+
+static int create_locked(struct fat32_vol* vol, const char* path, uint8_t attr,
+                         struct fat32_info* out) {
+    struct fat32_info parent, found;
+    char pp[FAT32_PATH_BUF], leaf[FAT32_NAME_MAX + 1];
+    int result = resolve_leaf(vol, path, &parent, pp, leaf, &found);
+    if (result == 0) return -EEXIST;
+    if (result != -ENOENT) return result;
+    uint16_t units[255];
+    result = name_units(leaf, units);
+    if (result < 0) return result;
+    uint16_t date, time;
+    fat_now(&date, &time);
+
+    uint32_t cluster = 0;
+    if (attr & FAT32_ATTR_DIR) {
+        result = chain_grow(vol, 0, true, &cluster);     /* cluster zerado */
+        if (result < 0) return result;
+        struct blkbuf* buf;
+        result = bread(vol->dev, cluster_lba(vol, cluster), &buf);
+        if (result < 0) {
+            (void)cluster_free_chain(vol, cluster);
+            return result;
+        }
+        uint32_t up = parent.first_cluster == vol->root_cluster
+                          ? 0 : parent.first_cluster;
+        for (uint32_t i = 0; i < 2u; i++) {
+            uint8_t* e = buf->data + i * 32u;
+            uint32_t target = i == 0 ? cluster : up;
+            memset(e, ' ', 11);
+            e[0] = '.';
+            if (i == 1) e[1] = '.';
+            e[11] = FAT32_ATTR_DIR;
+            put16(e + 14, time);
+            put16(e + 16, date);
+            put16(e + 18, date);
+            put16(e + 20, target >> 16);
+            put16(e + 22, time);
+            put16(e + 24, date);
+            put16(e + 26, target);
+            put32(e + 28, 0);
+        }
+        bdirty(buf);
+        brelse(buf);
+    }
+    result = dir_add_entry(vol, parent.first_cluster, leaf, attr, cluster, 0,
+                           date, time, out);
+    if (result < 0 && cluster) (void)cluster_free_chain(vol, cluster);
+    return result;
+}
+
+int fat32_create(struct fat32_vol* vol, const char* path, struct fat32_info* out) {
+    if (!vol || !path) return -EINVAL;
+    if (vol->readonly) return -EROFS;
+    int result = dirop_enter(vol);
+    if (result < 0) return result;
+    result = create_locked(vol, path, FAT32_ATTR_ARCH, out);
+    dirop_leave(vol);
+    return result;
+}
+
+int fat32_mkdir(struct fat32_vol* vol, const char* path) {
+    if (!vol || !path) return -EINVAL;
+    if (vol->readonly) return -EROFS;
+    int result = dirop_enter(vol);
+    if (result < 0) return result;
+    result = create_locked(vol, path, FAT32_ATTR_DIR, NULL);
+    dirop_leave(vol);
+    return result;
+}
+
+static int remove_locked(struct fat32_vol* vol, const char* path, bool want_dir) {
+    struct fat32_info parent, info;
+    char pp[FAT32_PATH_BUF], leaf[FAT32_NAME_MAX + 1];
+    int result = resolve_leaf(vol, path, &parent, pp, leaf, &info);
+    if (result < 0) return result;
+    bool is_dir = (info.attr & FAT32_ATTR_DIR) != 0;
+    if (want_dir && !is_dir) return -ENOTDIR;
+    if (!want_dir && is_dir) return -EISDIR;
+    if (info.attr & FAT32_ATTR_RO) return -EACCES;
+    if (info.dir_cluster == 0) return -EBUSY;
+    if (entry_is_open(vol, &info)) return -EBUSY;
+    if (want_dir) {
+        result = dir_is_empty(vol, &info);
+        if (result < 0) return result;
+    }
+    result = entry_delete(vol, parent.first_cluster, &info);
+    if (result < 0) return result;
+    if (info.first_cluster) return cluster_free_chain(vol, info.first_cluster);
+    return 0;
+}
+
+int fat32_unlink(struct fat32_vol* vol, const char* path) {
+    if (!vol || !path) return -EINVAL;
+    if (vol->readonly) return -EROFS;
+    int result = dirop_enter(vol);
+    if (result < 0) return result;
+    result = remove_locked(vol, path, false);
+    dirop_leave(vol);
+    return result;
+}
+
+int fat32_rmdir(struct fat32_vol* vol, const char* path) {
+    if (!vol || !path) return -EINVAL;
+    if (vol->readonly) return -EROFS;
+    int result = dirop_enter(vol);
+    if (result < 0) return result;
+    result = remove_locked(vol, path, true);
+    dirop_leave(vol);
+    return result;
+}
+
+static int rename_locked(struct fat32_vol* vol, const char* old_path,
+                         const char* new_path) {
+    struct fat32_info op, oi, np, ni, created;
+    char opp[FAT32_PATH_BUF], npp[FAT32_PATH_BUF];
+    char oleaf[FAT32_NAME_MAX + 1], nleaf[FAT32_NAME_MAX + 1];
+    int result = resolve_leaf(vol, old_path, &op, opp, oleaf, &oi);
+    if (result < 0) return result;
+    if (oi.dir_cluster == 0) return -EBUSY;                  /* raiz */
+    result = resolve_leaf(vol, new_path, &np, npp, nleaf, &ni);
+    bool found = result == 0;
+    if (result < 0 && result != -ENOENT) return result;
+    uint16_t units[255];
+    result = name_units(nleaf, units);                       /* valida antes */
+    if (result < 0) return result;
+
+    bool old_dir = (oi.attr & FAT32_ATTR_DIR) != 0;
+    bool same = found && ni.dir_cluster == oi.dir_cluster && ni.dir_pos == oi.dir_pos;
+    if (same && str_same(oleaf, nleaf)) return 0;
+    if (entry_is_open(vol, &oi)) return -EBUSY;
+    if (old_dir) {
+        if (np.first_cluster == oi.first_cluster) return -EINVAL;
+        result = path_has_cluster(vol, npp, oi.first_cluster);
+        if (result < 0) return result;
+        if (result == 1) return -EINVAL;
+    }
+    if (found && !same) {
+        bool new_dir = (ni.attr & FAT32_ATTR_DIR) != 0;
+        if (old_dir && !new_dir) return -ENOTDIR;
+        if (!old_dir && new_dir) return -EISDIR;
+        if (ni.attr & FAT32_ATTR_RO) return -EACCES;
+        if (ni.dir_cluster == 0 || entry_is_open(vol, &ni)) return -EBUSY;
+        if (new_dir) {
+            result = dir_is_empty(vol, &ni);
+            if (result < 0) return result;
+        }
+        /* libera o nome do destino; a cadeia so e liberada no fim */
+        result = entry_delete(vol, np.first_cluster, &ni);
+        if (result < 0) return result;
+    } else if (same) {
+        /* so muda a caixa/alias do mesmo arquivo: apaga e recria */
+        result = entry_delete(vol, op.first_cluster, &oi);
+        if (result < 0) return result;
+    }
+    result = dir_add_entry(vol, np.first_cluster, nleaf, oi.attr,
+                           oi.first_cluster, oi.size, oi.wdate, oi.wtime,
+                           &created);
+    if (result < 0) return result;           /* (destino ja removido: sem undo) */
+    if (!same) {
+        result = entry_delete(vol, op.first_cluster, &oi);
+        if (result < 0) return result;
+    }
+    if (old_dir && np.first_cluster != op.first_cluster) {
+        result = set_dotdot(vol, oi.first_cluster, np.first_cluster);
+        if (result < 0) return result;
+    }
+    if (found && !same && ni.first_cluster)
+        return cluster_free_chain(vol, ni.first_cluster);
+    return 0;
+}
+
+int fat32_rename(struct fat32_vol* vol, const char* old_path,
+                 const char* new_path) {
+    if (!vol || !old_path || !new_path) return -EINVAL;
+    if (vol->readonly) return -EROFS;
+    int result = dirop_enter(vol);
+    if (result < 0) return result;
+    result = rename_locked(vol, old_path, new_path);
+    dirop_leave(vol);
+    return result;
 }

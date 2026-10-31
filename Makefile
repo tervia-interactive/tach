@@ -105,6 +105,13 @@ test-host:
 		src/hal/io.c src/hal/console.c src/hal/host_stubs.c src/drivers/char/serial_8250.c \
 		src/drivers/video/vga_text.c src/drivers/input/keyboard_ps2.c -o src/build/host/fat32-write-test
 	@src/build/host/fat32-write-test
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
+		tests/host/fat32_dir_test.c src/fs/fat32.c src/drivers/block/blk.c src/drivers/block/blk_part.c \
+		src/drivers/block/ramdisk.c src/lib/string.c src/lib/printf.c src/kernel/klog.c \
+		src/mm/kheap.c src/mm/slab.c src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c \
+		src/hal/io.c src/hal/console.c src/hal/host_stubs.c src/drivers/char/serial_8250.c \
+		src/drivers/video/vga_text.c src/drivers/input/keyboard_ps2.c -o src/build/host/fat32-dir-test
+	@src/build/host/fat32-dir-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -Iuser/include \
 		-include tests/host/userlibc_rename.h -c user/libc/ext.c -o src/build/host/userlibc-ext.o
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -Iuser/include -Itests/host \

@@ -117,6 +117,25 @@ int fat32_truncate(struct fat32_vol* vol, struct fat32_node* node,
  * no estiver sujo. Nao faz flush do dispositivo (ver fat32_sync). */
 int fat32_node_sync(struct fat32_vol* vol, struct fat32_node* node);
 
+/* ------------------------------------------- operacoes de diretorio (3.2)
+ * `path` relativo a raiz do volume. Serializadas por um flag no volume:
+ * outra operacao de diretorio em curso => -EBUSY (nao ha sleep-lock).
+ * Politica de arquivos abertos: unlink/rmdir/rename de uma entrada com vnode
+ * aberto => -EBUSY (a entrada de diretorio guarda a posicao do no aberto).
+ * Erros comuns: -EROFS, -ENOENT, -ENOTDIR, -EEXIST, -EINVAL (nome invalido),
+ * -ENAMETOOLONG, -ENOSPC. Nomes: UTF-8, sem \\ / : * ? " < > | nem controles,
+ * sem '.'/' ' no fim; 8.3 gerado com ~N em colisao e LFN quando preciso. */
+/* Cria arquivo vazio (sem cluster). `out` (opcional) recebe a entrada. */
+int fat32_create(struct fat32_vol* vol, const char* path, struct fat32_info* out);
+int fat32_unlink(struct fat32_vol* vol, const char* path);   /* -EISDIR, -EACCES(RO) */
+int fat32_mkdir(struct fat32_vol* vol, const char* path);    /* cria "." e ".." */
+int fat32_rmdir(struct fat32_vol* vol, const char* path);    /* -ENOTEMPTY */
+/* Renomeia/move arquivo ou diretorio. Destino existente: arquivo substitui
+ * arquivo; diretorio so substitui diretorio vazio. -EINVAL ao mover um
+ * diretorio para dentro de si mesmo. */
+int fat32_rename(struct fat32_vol* vol, const char* old_path,
+                 const char* new_path);
+
 /* Entrada numero `index` (0, 1, ...) de um diretorio. 1 = preenchida,
  * 0 = fim, -errno em erro. Leituras sequenciais custam O(1) por chamada. */
 int fat32_readdir(struct fat32_vol* vol, struct fat32_node* node,
@@ -126,7 +145,7 @@ int fat32_readdir(struct fat32_vol* vol, struct fat32_node* node,
 /* Abre `path` (relativo a raiz do volume). Escrita/O_TRUNC exigem
  * volume gravavel (-EROFS), arquivo sem atributo RO (-EACCES) e nao-diretorio
  * (-EISDIR); O_TRUNC conta como escrita (e trunca para 0). O_CREAT em arquivo
- * inexistente: -EROFS em volume RO, -ENOSYS ate a etapa 3.2. O vnode e alocado aqui e liberado pelo hook
+ * inexistente: -EROFS em volume RO, cria via fat32_create. O vnode e alocado aqui e liberado pelo hook
  * `release` quando o ultimo descritor e descartado (open conta 1; `dup`
  * soma, `release` subtrai). */
 struct vnode* fat32_vnode_open(struct fat32_vol* vol, const char* path,
