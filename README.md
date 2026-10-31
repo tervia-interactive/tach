@@ -243,9 +243,9 @@ tach/
 
 External ring-3 programs shipped in the initrd under `/bin` (the shell runs them when no builtin matches):
 
-- text: `head`, `tail`, `wc`, `nl`, `rev`, `tac`, `sort` (`-rnfu`), `uniq` (`-cdui`), `cut` (`-f -d -c -s`), `tr` (`-d -s`, ranges and `[:class:]`), `hexdump`
+- text: `head`, `tail`, `wc`, `nl`, `rev`, `tac`, `sort` (`-rnfu`), `uniq` (`-cdui`), `cut` (`-f -d -c -s`), `tr` (`-d -s`, ranges and `[:class:]`), `hexdump`, `comm` (`-123`), `paste` (`-d`)
 - search: `grep` (regex subset `^ $ . * + ? [..] \c`, plus `-i -v -c -n -l -q -F -H -h -e`), `find` (`-name -type -maxdepth`)
-- files: `cp`, `mv`, `tee`, `stat`, `du`, `cat`, `echo`
+- files: `cp`, `mv`, `rm` (`-rf`), `touch`, `ls` (`-la1`, sorted), `tee`, `stat`, `du`, `cat`, `echo`, `cmp` (`-s`)
 - misc: `seq`, `basename`, `dirname`, `free` (from `/proc/meminfo`), `xargs`
 
 The shell supports pipelines (`a | b | c`, up to 4 stages) and `<`, `>`, `>>` redirection, e.g. `cat /proc/ps | grep init | wc -l`.
