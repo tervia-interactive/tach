@@ -37,6 +37,8 @@
 #include <fs/procfs.h>
 #include <fs/initrd.h>
 #include <drivers/block/ahci.h>
+#include <drivers/block/ata.h>
+#include <drivers/block/blk.h>
 #include <term/tty.h>
 #include <term/vterm.h>
 #include <term/shell.h>
@@ -179,6 +181,24 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     klog_info("procfs", "registered, mounting /proc");
     procfs_init();
 
+    klog_info("blk", "block layer: initializing sector cache");
+    blk_init();
+    /* Segundo modulo multiboot (se houver) vira o disco em memoria "ram0":
+     * util para testar sistemas de arquivos sem hardware (ex.: imagem FAT). */
+    const void* disk_image;
+    size_t disk_image_size;
+    if (multiboot_get_module(1, &disk_image, &disk_image_size, NULL) == 0) {
+        struct blkdev* ram = ramdisk_create("ram0", (void*)disk_image,
+                                            disk_image_size, false);
+        if (ram) {
+            int parts = blk_scan_partitions(ram);
+            klog_info("blk", "ram0: boot module disk image (%u KiB, %d partition(s))",
+                      (unsigned)(disk_image_size / 1024), parts);
+        }
+    }
+    int ata_disks = ata_init();
+    if (ata_disks <= 0)
+        klog_info("ata", "no ATA disks found on the legacy IDE channels");
     klog_warn("ahci", "no AHCI controller found on PCI bus, disk subsystem unavailable");
     ahci_init();
 

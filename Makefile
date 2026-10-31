@@ -83,12 +83,20 @@ test-host:
 		src/hal/console.c src/hal/host_stubs.c src/drivers/char/serial_8250.c src/drivers/video/vga_text.c \
 		src/drivers/input/keyboard_ps2.c -o src/build/host/vfs-dir-test
 	@src/build/host/vfs-dir-test
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
+		tests/host/blk_test.c src/drivers/block/blk.c src/drivers/block/blk_part.c \
+		src/drivers/block/ramdisk.c src/drivers/block/ata_pio.c \
+		src/lib/string.c src/lib/printf.c src/kernel/klog.c src/mm/kheap.c src/mm/slab.c \
+		src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c src/hal/console.c \
+		src/hal/host_stubs.c src/drivers/char/serial_8250.c src/drivers/video/vga_text.c \
+		src/drivers/input/keyboard_ps2.c -o src/build/host/blk-test
+	@src/build/host/blk-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -Iuser/include \
 		-include tests/host/userlibc_rename.h -c user/libc/ext.c -o src/build/host/userlibc-ext.o
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -Iuser/include -Itests/host \
 		tests/host/userlibc_test.c src/build/host/userlibc-ext.o -o src/build/host/userlibc-test
 	@src/build/host/userlibc-test
-	@echo "Host userspace, PMM, VMM/ELF/fault, heap/slab, timer wheel, watchdog, preemption, process, signal, semaphore, tmpfs, VFS directory/stat, and user libc tests passed."
+	@echo "Host userspace, PMM, VMM/ELF/fault, heap/slab, timer wheel, watchdog, preemption, process, signal, semaphore, tmpfs, VFS directory/stat, block layer/ATA, and user libc tests passed."
 
 clean:
 	rm -rf src/build/
