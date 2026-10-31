@@ -107,6 +107,8 @@ int main(void) {
     a.opened = 0;
     CHECK(vfs_umount("/mnt") == 0 && a.unmounts == 1);
     CHECK(vfs_umount("/mnt") == -EINVAL);
+    /* b abriu /mnt/sub/z acima e o FS falso nao conta os fechamentos */
+    b.opened = 0;
     CHECK(vfs_umount("/mnt/sub") == 0);
     v = vfs_open_err("/mnt/x", O_RDONLY, &err);
     CHECK(!v);
