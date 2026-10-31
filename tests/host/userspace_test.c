@@ -105,6 +105,21 @@ int main(void) {
         "cat /proc/self/status\n"
         "ps\n"
         "syscalls\n"
+        "echo a ; echo b && echo c || echo NOPE\n"
+        "false || echo or-ran\n"
+        "false\n"
+        "echo status=$?\n"
+        "echo \"quoted arg\"x\n"
+        "cd /dev\n"
+        "pwd\n"
+        "cd ..\n"
+        "pwd\n"
+        "ls /\n"
+        "ls -l /dev\n"
+        "nosuchcmd\n"
+        "echo st=$?\n"
+        "uptime\n"
+        "free\n"
         "exit 7\n";
 
     CHECK(userland_bootstrap(&tty) == 7);
@@ -119,6 +134,14 @@ int main(void) {
     CHECK(contains(g_output, "userspace"));
     CHECK(contains(g_output, "Pid:\t2"));
     CHECK(contains(g_output, "getpid"));
+    CHECK(contains(g_output, "\nor-ran\n"));
+    CHECK(!contains(g_output, "\nNOPE\n"));
+    CHECK(contains(g_output, "\nstatus=1\n"));
+    CHECK(contains(g_output, "quoted argx"));
+    CHECK(contains(g_output, "tach:/dev# "));
+    CHECK(contains(g_output, "\nst=127\n"));
+    CHECK(contains(g_output, "\ndev/\n"));
+    CHECK(contains(g_output, "c        0 console"));
 
     CHECK(syscall_dispatch(SYS_GETPID, 0, 0, 0, 0, 0, 0) == 1);
     const char message[] = "syscall-write-ok\n";

@@ -5,12 +5,16 @@
 #include <kernel/version.h>
 #include <term/shell.h>
 #include <hal/console.h>
+#include <hal/time.h>
 #include <proc/process.h>
 #include <proc/syscall.h>
 #include <fs/vfs.h>
 #include <mm/pmm.h>
 
 #define SHELL_MAX_ARGS 16
+#define SHELL_PATH_MAX 128
+#define SHELL_MAX_CANDIDATES 32
+#define SHELL_NOT_FOUND 127
 
 static shell_t* g_active_shell;
 
@@ -19,6 +23,14 @@ static void shell_putc(char c) {
 }
 
 #define shell_printf(...) kprintf_to(shell_putc, __VA_ARGS__)
+
+static const char* const g_builtins[] = {
+    "cat", "cd", "clear", "echo", "exit", "false", "free", "help", "history",
+    "hostname", "id", "ls", "mkdir", "mv", "ps", "pwd", "rm", "rmdir",
+    "sleep", "stat", "status", "syscalls", "touch", "true", "uname", "uptime",
+    "whoami",
+};
+#define SHELL_BUILTIN_COUNT (sizeof(g_builtins) / sizeof(g_builtins[0]))
 
 static const char* shell_arch(void) {
 #if defined(__x86_64__)
@@ -38,6 +50,8 @@ static const char* shell_arch(void) {
 #endif
 }
 
+/* Split `line` in place into words. Handles 'single' and "double" quotes
+ * (also glued to other text, as in a"b"c) and backslash escapes. */
 static int parse_line(char* line, const char** argv, int capacity) {
     int argc = 0;
     char* cursor = line;
@@ -49,34 +63,40 @@ static int parse_line(char* line, const char** argv, int capacity) {
             break;
         }
 
-        char quote = 0;
-        if (*cursor == '\'' || *cursor == '"') {
-            quote = *cursor++;
-        }
         argv[argc++] = cursor;
-
         char* out = cursor;
+        char quote = 0;
         while (*cursor) {
+            char ch = *cursor;
             if (quote) {
-                if (*cursor == quote) {
+                if (ch == quote) {
+                    quote = 0;
                     cursor++;
-                    break;
+                    continue;
                 }
-            } else if (*cursor == ' ' || *cursor == '\t') {
+                if (ch == '\\' && quote == '"' && cursor[1]) {
+                    cursor++;
+                }
+                *out++ = *cursor++;
+                continue;
+            }
+            if (ch == ' ' || ch == '\t') {
                 break;
             }
-            if (*cursor == '\\' && cursor[1]) {
+            if (ch == '\'' || ch == '"') {
+                quote = ch;
+                cursor++;
+                continue;
+            }
+            if (ch == '\\' && cursor[1]) {
                 cursor++;
             }
             *out++ = *cursor++;
         }
-        bool had_separator = !quote && *cursor != '\0';
+        bool more = *cursor != '\0';
         *out = '\0';
-        if (had_separator) {
+        if (more) {
             cursor++;
-        }
-        while (*cursor == ' ' || *cursor == '\t') {
-            *cursor++ = '\0';
         }
     }
     return argc;
@@ -86,21 +106,26 @@ static void command_help(void) {
     shell_printf(
         "Built-in commands:\n"
         "  help                 show this command list\n"
-        "  clear                clear the display\n"
-        "  echo [args...]       print arguments\n"
+        "  clear                clear the display (Ctrl+L)\n"
+        "  echo [-n] [args] [> file | >> file]   print arguments\n"
         "  uname [-a]           show system information\n"
-        "  ps                   list processes\n"
+        "  hostname | uptime    machine name / time since boot\n"
+        "  ps | free            list processes / memory usage\n"
         "  id | whoami          show current identity\n"
-        "  pwd | cd [path]      inspect or change logical directory\n"
-        "  ls [path]            list the embedded root filesystem\n"
-        "  cat <proc-file>      read supported /proc files\n"
-        "  history              show command history\n"
+        "  pwd | cd [path|-]    show or change directory (supports .. and .)\n"
+        "  ls [-l] [path...]    list directories\n"
+        "  cat <file...>        print files (/proc/* supported)\n"
+        "  stat <path>          show type and size\n"
+        "  mkdir|rmdir|rm|touch|mv   manage files (writable mounts, e.g. /tmp)\n"
+        "  sleep <seconds>      wait\n"
+        "  history | status     command history / previous status ($?)\n"
         "  syscalls             show active syscall ABI entries\n"
-        "  status               show the previous command status\n"
         "  exit [status]        leave the shell\n"
         "  /path | command      run an ELF from the initrd (/bin searched)\n"
         "\n"
-        "Editing: Backspace, Ctrl+U, Ctrl+W, Up/Down history.\n");
+        "Chain commands with ;  &&  ||   Quote with '...' or \"...\".\n"
+        "Editing: Left/Right, Home/End, Delete, Backspace, Tab completion,\n"
+        "  Ctrl+A/E/K/U/W, Ctrl+C cancel, Ctrl+L clear, Up/Down history.\n");
 }
 
 static int parse_small_int(const char* text, int fallback) {
@@ -117,6 +142,23 @@ static int parse_small_int(const char* text, int fallback) {
         value = value * 10 + (*text++ - '0');
     }
     return negative ? -value : value;
+}
+
+static int shell_resolve(const shell_t* sh, const char* arg, char* out,
+                         size_t capacity) {
+    int rc = vfs_resolve_path(sh->cwd, arg, out, capacity);
+    if (rc < 0) {
+        return rc;
+    }
+    return 0;
+}
+
+static bool shell_is_dir(const char* abs_path) {
+    struct tach_stat info;
+    if (vfs_stat(abs_path, &info) != 0) {
+        return false;
+    }
+    return TACH_S_ISDIR(info.st_mode);
 }
 
 static void command_ps(void) {
@@ -152,8 +194,9 @@ static void command_history(tty_t* tty) {
     }
 }
 
-static int command_ls(const char* path) {
-    if (!path || strcmp(path, "/") == 0) {
+/* Legacy listing used when the VFS cannot enumerate a synthetic directory. */
+static int command_ls_fallback(const char* path) {
+    if (strcmp(path, "/") == 0) {
         shell_printf("dev/\nproc/\nsbin/\n");
         return 0;
     }
@@ -175,15 +218,113 @@ static int command_ls(const char* path) {
         shell_printf("init\n");
         return 0;
     }
-    shell_printf("ls: %s: no such directory\n", path);
     return -ENOENT;
 }
 
-static int command_cat(const char* path) {
-    if (!path) {
-        shell_printf("cat: missing operand\n");
-        return -EINVAL;
+static char shell_type_char(uint8_t type) {
+    switch (type) {
+    case VNODE_DIR:   return 'd';
+    case VNODE_CHAR:  return 'c';
+    case VNODE_BLOCK: return 'b';
+    case VNODE_LINK:  return 'l';
+    case VNODE_PIPE:  return 'p';
+    default:          return '-';
     }
+}
+
+static int ls_one(shell_t* sh, const char* arg, bool longfmt, bool header) {
+    char path[SHELL_PATH_MAX];
+    if (shell_resolve(sh, arg, path, sizeof(path)) < 0) {
+        shell_printf("ls: %s: bad path\n", arg);
+        return -ENOENT;
+    }
+    struct tach_stat info;
+    if (vfs_stat(path, &info) == 0 && !TACH_S_ISDIR(info.st_mode)) {
+        if (longfmt) {
+            shell_printf("%c %8lu ", TACH_S_ISCHR(info.st_mode) ? 'c' : '-',
+                         (unsigned long)info.st_size);
+        }
+        shell_printf("%s\n", arg);
+        return 0;
+    }
+    int error = 0;
+    struct vnode* dir = vfs_open_err(path, O_RDONLY, &error);
+    if (!dir) {
+        if (command_ls_fallback(path) == 0) {
+            return 0;
+        }
+        shell_printf("ls: %s: no such directory\n", arg);
+        return error < 0 ? error : -ENOENT;
+    }
+    if (header) {
+        shell_printf("%s:\n", path);
+    }
+    struct dirent entry;
+    size_t count = 0;
+    for (size_t index = 0;; index++) {
+        int rc = vfs_readdir(dir, index, &entry);
+        if (rc < 0) {
+            if (index == 0 && command_ls_fallback(path) == 0) {
+                count = 1;
+            } else if (index == 0) {
+                shell_printf("ls: %s: %d\n", arg, rc);
+            }
+            break;
+        }
+        if (rc == 0) {
+            break;
+        }
+        count++;
+        if (strcmp(entry.d_name, ".") == 0 || strcmp(entry.d_name, "..") == 0) {
+            continue;
+        }
+        if (longfmt) {
+            char child[SHELL_PATH_MAX];
+            struct tach_stat child_info;
+            unsigned long size = 0;
+            size_t base = strlen(path);
+            if (base + strlen(entry.d_name) + 2 < sizeof(child)) {
+                strcpy(child, path);
+                if (base > 1) {
+                    child[base++] = '/';
+                }
+                strcpy(child + base, entry.d_name);
+                if (vfs_stat(child, &child_info) == 0) {
+                    size = (unsigned long)child_info.st_size;
+                }
+            }
+            shell_printf("%c %8lu ", shell_type_char(entry.d_type), size);
+        }
+        shell_printf("%s%s\n", entry.d_name, entry.d_type == VNODE_DIR ? "/" : "");
+    }
+    (void)count;
+    vfs_release(dir);
+    return 0;
+}
+
+static int command_ls(shell_t* sh, int argc, const char** argv) {
+    bool longfmt = false;
+    int first = 1;
+    while (first < argc && argv[first][0] == '-' && argv[first][1]) {
+        for (const char* f = argv[first] + 1; *f; f++) {
+            if (*f == 'l') longfmt = true;
+        }
+        first++;
+    }
+    if (first >= argc) {
+        return ls_one(sh, ".", longfmt, false);
+    }
+    int status = 0;
+    bool header = (argc - first) > 1;
+    for (int i = first; i < argc; i++) {
+        int rc = ls_one(sh, argv[i], longfmt, header);
+        if (rc) status = rc;
+        if (header && i + 1 < argc) shell_putc('\n');
+    }
+    return status;
+}
+
+static int cat_proc(const char* path) {
     if (strcmp(path, "/proc/version") == 0) {
         shell_printf("tach %s %s (freestanding C kernel)\n",
                      TACH_VERSION_STRING, shell_arch());
@@ -206,9 +347,382 @@ static int command_cat(const char* path) {
                      (unsigned)proc->gid);
         return 0;
     }
-    shell_printf("cat: %s: no such file\n", path);
-    return -ENOENT;
+    return 1; /* not a built-in /proc file */
 }
+
+static int cat_one(shell_t* sh, const char* arg) {
+    char path[SHELL_PATH_MAX];
+    if (shell_resolve(sh, arg, path, sizeof(path)) < 0) {
+        shell_printf("cat: %s: bad path\n", arg);
+        return -ENOENT;
+    }
+    int proc_rc = cat_proc(path);
+    if (proc_rc <= 0) {
+        return proc_rc;
+    }
+    int error = 0;
+    struct vnode* vn = vfs_open_err(path, O_RDONLY, &error);
+    if (!vn) {
+        shell_printf("cat: %s: no such file\n", arg);
+        return error < 0 ? error : -ENOENT;
+    }
+    if (vn->type == VNODE_DIR) {
+        vfs_release(vn);
+        shell_printf("cat: %s: is a directory\n", arg);
+        return -EISDIR;
+    }
+    char chunk[128];
+    int64_t offset = 0;
+    bool last_newline = true;
+    while (1) {
+        ssize_t got = vfs_read(vn, chunk, sizeof(chunk), offset);
+        if (got <= 0) {
+            break;
+        }
+        for (ssize_t i = 0; i < got; i++) {
+            char c = chunk[i];
+            if (c == '\n' || c == '\t' || (c >= ' ' && c <= '~')) {
+                shell_putc(c);
+            } else {
+                shell_putc('.');
+            }
+        }
+        last_newline = chunk[got - 1] == '\n';
+        offset += got;
+    }
+    if (!last_newline) {
+        shell_putc('\n');
+    }
+    vfs_release(vn);
+    return 0;
+}
+
+static int command_cat(shell_t* sh, int argc, const char** argv) {
+    if (argc < 2) {
+        shell_printf("cat: missing operand\n");
+        return -EINVAL;
+    }
+    int status = 0;
+    for (int i = 1; i < argc; i++) {
+        int rc = cat_one(sh, argv[i]);
+        if (rc) status = rc;
+    }
+    return status;
+}
+
+static int command_cd(shell_t* sh, const char* arg) {
+    char target[SHELL_PATH_MAX];
+    if (arg && strcmp(arg, "-") == 0) {
+        arg = sh->oldpwd[0] ? sh->oldpwd : sh->cwd;
+        shell_printf("%s\n", arg);
+    }
+    if (shell_resolve(sh, arg ? arg : "/", target, sizeof(target)) < 0 ||
+        !shell_is_dir(target)) {
+        shell_printf("cd: %s: no such directory\n", arg ? arg : "/");
+        return -ENOENT;
+    }
+    strcpy(sh->oldpwd, sh->cwd);
+    strcpy(sh->cwd, target);
+    return 0;
+}
+
+/* Run `fn` for every path argument; used by rm/rmdir/mkdir. */
+static int for_each_path(shell_t* sh, const char* name, int argc,
+                         const char** argv, int (*fn)(const char*)) {
+    if (argc < 2) {
+        shell_printf("%s: missing operand\n", name);
+        return -EINVAL;
+    }
+    int status = 0;
+    for (int i = 1; i < argc; i++) {
+        char path[SHELL_PATH_MAX];
+        if (shell_resolve(sh, argv[i], path, sizeof(path)) < 0) {
+            shell_printf("%s: %s: bad path\n", name, argv[i]);
+            status = -ENOENT;
+            continue;
+        }
+        int rc = fn(path);
+        if (rc < 0) {
+            shell_printf("%s: %s: failed (%d)\n", name, argv[i], rc);
+            status = rc;
+        }
+    }
+    return status;
+}
+
+static int touch_path(const char* path) {
+    int error = 0;
+    struct vnode* vn = vfs_open_err(path, O_WRONLY | O_CREAT, &error);
+    if (!vn) {
+        return error < 0 ? error : -EIO;
+    }
+    vfs_release(vn);
+    return 0;
+}
+
+static int command_stat(shell_t* sh, int argc, const char** argv) {
+    if (argc < 2) {
+        shell_printf("stat: missing operand\n");
+        return -EINVAL;
+    }
+    int status = 0;
+    for (int i = 1; i < argc; i++) {
+        char path[SHELL_PATH_MAX];
+        struct tach_stat info;
+        if (shell_resolve(sh, argv[i], path, sizeof(path)) < 0 ||
+            vfs_stat(path, &info) != 0) {
+            shell_printf("stat: %s: no such file or directory\n", argv[i]);
+            status = -ENOENT;
+            continue;
+        }
+        const char* kind = TACH_S_ISDIR(info.st_mode) ? "directory" :
+                           TACH_S_ISCHR(info.st_mode) ? "character device" :
+                           TACH_S_ISREG(info.st_mode) ? "regular file" : "other";
+        shell_printf("  File: %s\n  Type: %s\n  Size: %lu\n", path, kind,
+                     (unsigned long)info.st_size);
+    }
+    return status;
+}
+
+static int command_mv(shell_t* sh, int argc, const char** argv) {
+    if (argc != 3) {
+        shell_printf("mv: usage: mv <from> <to>\n");
+        return -EINVAL;
+    }
+    char from[SHELL_PATH_MAX];
+    char to[SHELL_PATH_MAX];
+    if (shell_resolve(sh, argv[1], from, sizeof(from)) < 0 ||
+        shell_resolve(sh, argv[2], to, sizeof(to)) < 0) {
+        shell_printf("mv: bad path\n");
+        return -ENOENT;
+    }
+    int rc = vfs_rename(from, to);
+    if (rc < 0) {
+        shell_printf("mv: failed (%d)\n", rc);
+    }
+    return rc;
+}
+
+static void command_uptime(void) {
+    uint64_t freq = hal_timer_get_frequency();
+    uint64_t ticks = hal_timer_get_ticks();
+    unsigned long seconds = freq ? (unsigned long)(ticks / freq) : 0;
+    shell_printf("up %lu:%02lu:%02lu (%lu ticks)\n", seconds / 3600,
+                 (seconds / 60) % 60, seconds % 60, (unsigned long)ticks);
+}
+
+static void command_free(void) {
+    unsigned long total = (unsigned long)(pmm_get_total_pages() * 4);
+    unsigned long avail = (unsigned long)(pmm_get_free_pages() * 4);
+    shell_printf("        total     used     free  (kB)\n");
+    shell_printf("Mem: %8lu %8lu %8lu\n", total, total - avail, avail);
+}
+
+/* echo with optional "> file" / ">> file" redirection. */
+static int command_echo(shell_t* sh, int argc, const char** argv) {
+    int end = argc;
+    int redirect = 0;
+    const char* target = NULL;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], ">") == 0 || strcmp(argv[i], ">>") == 0) {
+            redirect = argv[i][1] ? 2 : 1;
+            end = i;
+            if (i + 1 >= argc) {
+                shell_printf("echo: missing file after redirection\n");
+                return -EINVAL;
+            }
+            target = argv[i + 1];
+            break;
+        }
+    }
+    int first = 1;
+    bool newline = true;
+    if (first < end && strcmp(argv[first], "-n") == 0) {
+        newline = false;
+        first++;
+    }
+
+    char text[TTY_BUFFER_SIZE + 2];
+    size_t length = 0;
+    for (int i = first; i < end; i++) {
+        size_t part = strlen(argv[i]);
+        if (length + part + 2 >= sizeof(text)) {
+            break;
+        }
+        if (i > first) text[length++] = ' ';
+        memcpy(text + length, argv[i], part);
+        length += part;
+    }
+    if (newline) text[length++] = '\n';
+
+    if (!redirect) {
+        hal_console_write(text, length);
+        return 0;
+    }
+    char path[SHELL_PATH_MAX];
+    if (shell_resolve(sh, target, path, sizeof(path)) < 0) {
+        shell_printf("echo: %s: bad path\n", target);
+        return -ENOENT;
+    }
+    int error = 0;
+    int flags = O_WRONLY | O_CREAT | (redirect == 2 ? O_APPEND : O_TRUNC);
+    struct vnode* vn = vfs_open_err(path, flags, &error);
+    if (!vn) {
+        shell_printf("echo: %s: cannot open for writing (%d)\n", target, error);
+        return error < 0 ? error : -EIO;
+    }
+    int64_t offset = redirect == 2 ? (int64_t)vn->size : 0;
+    ssize_t written = vfs_write(vn, text, length, offset);
+    vfs_release(vn);
+    if (written < 0 || (size_t)written != length) {
+        shell_printf("echo: %s: write failed\n", target);
+        return written < 0 ? (int)written : -EIO;
+    }
+    return 0;
+}
+
+static void shell_print_prompt(void) {
+    if (g_active_shell) {
+        shell_printf("%s:%s# ", g_active_shell->prompt, g_active_shell->cwd);
+    }
+}
+
+/* ---- Tab completion ------------------------------------------------- */
+
+typedef struct {
+    char name[64];
+    bool dir;
+} candidate_t;
+
+static void candidate_add(candidate_t* list, size_t* count, const char* name,
+                          bool dir) {
+    if (*count >= SHELL_MAX_CANDIDATES || strlen(name) >= sizeof(list[0].name)) {
+        return;
+    }
+    for (size_t i = 0; i < *count; i++) {
+        if (strcmp(list[i].name, name) == 0) {
+            return;
+        }
+    }
+    strcpy(list[*count].name, name);
+    list[*count].dir = dir;
+    (*count)++;
+}
+
+static void collect_dir(const char* dir_path, const char* prefix,
+                        candidate_t* list, size_t* count) {
+    int error = 0;
+    struct vnode* dir = vfs_open_err(dir_path, O_RDONLY, &error);
+    if (!dir) {
+        return;
+    }
+    size_t plen = strlen(prefix);
+    struct dirent entry;
+    for (size_t index = 0;; index++) {
+        if (vfs_readdir(dir, index, &entry) <= 0) {
+            break;
+        }
+        if (strcmp(entry.d_name, ".") == 0 || strcmp(entry.d_name, "..") == 0) {
+            continue;
+        }
+        if (strncmp(entry.d_name, prefix, plen) == 0) {
+            candidate_add(list, count, entry.d_name, entry.d_type == VNODE_DIR);
+        }
+    }
+    vfs_release(dir);
+}
+
+static size_t shell_complete(tty_t* tty, char* out, size_t out_size) {
+    shell_t* sh = g_active_shell;
+    if (!sh || out_size < 2) {
+        return 0;
+    }
+    size_t end = tty->cursor;
+    size_t start = end;
+    while (start && tty->buffer[start - 1] != ' ') {
+        start--;
+    }
+    bool first_word = true;
+    for (size_t i = 0; i < start; i++) {
+        if (tty->buffer[i] != ' ') {
+            first_word = false;
+            break;
+        }
+    }
+    char word[SHELL_PATH_MAX];
+    size_t wlen = end - start;
+    if (wlen >= sizeof(word)) {
+        return 0;
+    }
+    memcpy(word, tty->buffer + start, wlen);
+    word[wlen] = '\0';
+
+    candidate_t list[SHELL_MAX_CANDIDATES];
+    size_t count = 0;
+    const char* prefix = word;
+    const char* slash = NULL;
+    for (const char* p = word; *p; p++) {
+        if (*p == '/') slash = p;
+    }
+
+    if (first_word && !slash) {
+        for (size_t i = 0; i < SHELL_BUILTIN_COUNT; i++) {
+            if (strncmp(g_builtins[i], word, wlen) == 0) {
+                candidate_add(list, &count, g_builtins[i], false);
+            }
+        }
+        collect_dir("/bin", word, list, &count);
+    } else {
+        char dir_arg[SHELL_PATH_MAX];
+        char dir_abs[SHELL_PATH_MAX];
+        if (slash) {
+            size_t dlen = (size_t)(slash - word) + 1;
+            memcpy(dir_arg, word, dlen);
+            dir_arg[dlen] = '\0';
+            prefix = slash + 1;
+        } else {
+            strcpy(dir_arg, ".");
+        }
+        if (shell_resolve(sh, dir_arg, dir_abs, sizeof(dir_abs)) < 0) {
+            return 0;
+        }
+        collect_dir(dir_abs, prefix, list, &count);
+    }
+    if (!count) {
+        return 0;
+    }
+
+    size_t plen = strlen(prefix);
+    size_t common = strlen(list[0].name);
+    for (size_t i = 1; i < count; i++) {
+        size_t k = 0;
+        while (k < common && list[i].name[k] == list[0].name[k]) {
+            k++;
+        }
+        common = k;
+    }
+    size_t produced = 0;
+    for (size_t i = plen; i < common && produced + 2 < out_size; i++) {
+        out[produced++] = list[0].name[i];
+    }
+    if (count == 1) {
+        out[produced++] = list[0].dir ? '/' : ' ';
+        out[produced] = '\0';
+        return produced;
+    }
+    out[produced] = '\0';
+    if (produced == 0) {
+        shell_putc('\n');
+        for (size_t i = 0; i < count; i++) {
+            shell_printf("%s%s  ", list[i].name, list[i].dir ? "/" : "");
+        }
+        shell_putc('\n');
+        tty->complete_listed = true;
+    }
+    return produced;
+}
+
+/* ---- Core ------------------------------------------------------------ */
 
 void shell_init(shell_t* sh, const char* prompt) {
     if (!sh) {
@@ -218,6 +732,7 @@ void shell_init(shell_t* sh, const char* prompt) {
     sh->prompt = prompt ? prompt : "tach";
     sh->running = true;
     strcpy(sh->cwd, "/");
+    strcpy(sh->oldpwd, "/");
 }
 
 int shell_exec(const char* cmd, int argc, const char** argv) {
@@ -231,11 +746,7 @@ int shell_exec(const char* cmd, int argc, const char** argv) {
     } else if (strcmp(cmd, "clear") == 0) {
         hal_console_clear();
     } else if (strcmp(cmd, "echo") == 0) {
-        for (int i = 1; i < argc; i++) {
-            if (i > 1) shell_putc(' ');
-            shell_printf("%s", argv[i]);
-        }
-        shell_putc('\n');
+        return command_echo(sh, argc, argv);
     } else if (strcmp(cmd, "uname") == 0) {
         if (argc > 1 && strcmp(argv[1], "-a") == 0) {
             shell_printf("tach %s %s userspace\n",
@@ -243,6 +754,19 @@ int shell_exec(const char* cmd, int argc, const char** argv) {
         } else {
             shell_printf("tach\n");
         }
+    } else if (strcmp(cmd, "hostname") == 0) {
+        shell_printf("%s\n", sh->prompt);
+    } else if (strcmp(cmd, "uptime") == 0) {
+        command_uptime();
+    } else if (strcmp(cmd, "free") == 0) {
+        command_free();
+    } else if (strcmp(cmd, "sleep") == 0) {
+        int seconds = argc > 1 ? parse_small_int(argv[1], 0) : 0;
+        if (argc < 2 || seconds < 0) {
+            shell_printf("sleep: usage: sleep <seconds>\n");
+            return -EINVAL;
+        }
+        hal_timer_sleep((uint64_t)seconds * 1000u);
     } else if (strcmp(cmd, "ps") == 0) {
         command_ps();
     } else if (strcmp(cmd, "id") == 0) {
@@ -256,18 +780,23 @@ int shell_exec(const char* cmd, int argc, const char** argv) {
     } else if (strcmp(cmd, "pwd") == 0) {
         shell_printf("%s\n", sh->cwd);
     } else if (strcmp(cmd, "cd") == 0) {
-        const char* path = argc > 1 ? argv[1] : "/";
-        if (strcmp(path, "/") != 0 && strcmp(path, "/dev") != 0 &&
-            strcmp(path, "/proc") != 0 && strcmp(path, "/sbin") != 0) {
-            shell_printf("cd: %s: no such directory\n", path);
-            return -ENOENT;
-        }
-        strncpy(sh->cwd, path, sizeof(sh->cwd) - 1);
-        sh->cwd[sizeof(sh->cwd) - 1] = '\0';
+        return command_cd(sh, argc > 1 ? argv[1] : NULL);
     } else if (strcmp(cmd, "ls") == 0) {
-        return command_ls(argc > 1 ? argv[1] : sh->cwd);
+        return command_ls(sh, argc, argv);
     } else if (strcmp(cmd, "cat") == 0) {
-        return command_cat(argc > 1 ? argv[1] : NULL);
+        return command_cat(sh, argc, argv);
+    } else if (strcmp(cmd, "stat") == 0) {
+        return command_stat(sh, argc, argv);
+    } else if (strcmp(cmd, "mkdir") == 0) {
+        return for_each_path(sh, "mkdir", argc, argv, vfs_mkdir);
+    } else if (strcmp(cmd, "rmdir") == 0) {
+        return for_each_path(sh, "rmdir", argc, argv, vfs_rmdir);
+    } else if (strcmp(cmd, "rm") == 0) {
+        return for_each_path(sh, "rm", argc, argv, vfs_unlink);
+    } else if (strcmp(cmd, "touch") == 0) {
+        return for_each_path(sh, "touch", argc, argv, touch_path);
+    } else if (strcmp(cmd, "mv") == 0) {
+        return command_mv(sh, argc, argv);
     } else if (strcmp(cmd, "history") == 0) {
         command_history(sh->tty);
     } else if (strcmp(cmd, "syscalls") == 0) {
@@ -289,7 +818,7 @@ int shell_exec(const char* cmd, int argc, const char** argv) {
         process_exit(status);
         return status;
     } else {
-        char path[128];
+        char path[SHELL_PATH_MAX];
         const char* executable = cmd;
         if (cmd[0] != '/') {
             strcpy(path, "/bin/");
@@ -318,9 +847,115 @@ int shell_exec(const char* cmd, int argc, const char** argv) {
             return (int32_t)waited < 0 ? (int32_t)waited : status;
         }
         shell_printf("%s: command not found\n", cmd);
-        return -ENOENT;
+        return SHELL_NOT_FOUND;
     }
     return 0;
+}
+
+static void format_int(char* out, int value) {
+    char digits[12];
+    size_t n = 0;
+    unsigned magnitude = value < 0 ? 0u - (unsigned)value : (unsigned)value;
+    do {
+        digits[n++] = (char)('0' + magnitude % 10u);
+        magnitude /= 10u;
+    } while (magnitude && n < sizeof(digits));
+    size_t pos = 0;
+    if (value < 0) out[pos++] = '-';
+    while (n) out[pos++] = digits[--n];
+    out[pos] = '\0';
+}
+
+/* Expand $? (outside single quotes) into `out`. */
+static void expand_status(const char* in, char* out, size_t capacity,
+                          int status) {
+    char number[12];
+    format_int(number, status);
+    size_t pos = 0;
+    char quote = 0;
+    for (; *in && pos + 1 < capacity; in++) {
+        if (quote == '\'') {
+            if (*in == '\'') quote = 0;
+        } else if (*in == '\'' || *in == '"') {
+            if (!quote) quote = *in; else if (quote == *in) quote = 0;
+        } else if (*in == '\\' && in[1]) {
+            out[pos++] = *in++;
+        } else if (in[0] == '$' && in[1] == '?') {
+            for (const char* d = number; *d && pos + 1 < capacity; d++) {
+                out[pos++] = *d;
+            }
+            in++;
+            continue;
+        }
+        out[pos++] = *in;
+    }
+    out[pos] = '\0';
+}
+
+/* Run one already-split command segment. */
+static int shell_run_segment(shell_t* sh, char* segment) {
+    const char* argv[SHELL_MAX_ARGS];
+    char expanded[TTY_BUFFER_SIZE * 2];
+    expand_status(segment, expanded, sizeof(expanded), sh->last_status);
+    int argc = parse_line(expanded, argv, SHELL_MAX_ARGS);
+    if (!argc) {
+        return sh->last_status;
+    }
+    return shell_exec(argv[0], argc, argv);
+}
+
+/* Execute a full line, honouring ;  &&  || outside quotes. */
+static void shell_run_line(shell_t* sh, char* line) {
+    char* start = line;
+    char quote = 0;
+    char op = ';';
+    for (char* p = line;; p++) {
+        char next_op = 0;
+        size_t skip = 0;
+        if (*p == '\0') {
+            next_op = '\0';
+        } else if (quote) {
+            if (*p == '\\' && quote == '"' && p[1]) {
+                p++;
+            } else if (*p == quote) {
+                quote = 0;
+            }
+            continue;
+        } else if (*p == '\\' && p[1]) {
+            p++;
+            continue;
+        } else if (*p == '\'' || *p == '"') {
+            quote = *p;
+            continue;
+        } else if (*p == ';') {
+            next_op = ';';
+            skip = 1;
+        } else if (p[0] == '&' && p[1] == '&') {
+            next_op = '&';
+            skip = 2;
+        } else if (p[0] == '|' && p[1] == '|') {
+            next_op = '|';
+            skip = 2;
+        } else {
+            continue;
+        }
+
+        bool at_end = (*p == '\0');
+        if (!at_end) {
+            *p = '\0';
+        }
+        bool run = op == ';' || (op == '&' && sh->last_status == 0) ||
+                   (op == '|' && sh->last_status != 0);
+        if (run && sh->running) {
+            sh->last_status = shell_run_segment(sh, start);
+        }
+        if (at_end || !sh->running) {
+            break;
+        }
+        p += skip - 1;
+        start = p + 1;
+        op = next_op;
+    }
 }
 
 void shell_run(shell_t* sh) {
@@ -328,21 +963,21 @@ void shell_run(shell_t* sh) {
         return;
     }
     g_active_shell = sh;
+    sh->tty->prompt_fn = shell_print_prompt;
+    sh->tty->complete_fn = shell_complete;
     shell_printf("tach (%s)\n", TACH_VERSION_STRING);
     shell_printf("Type 'help' for available commands.\n\n");
 
     char line[TTY_BUFFER_SIZE];
-    const char* argv[SHELL_MAX_ARGS];
     while (sh->running) {
-        shell_printf("%s:%s# ", sh->prompt, sh->cwd);
+        shell_print_prompt();
         ssize_t length = tty_readline(sh->tty, line, sizeof(line));
         if (length <= 0) {
             continue;
         }
-        int argc = parse_line(line, argv, SHELL_MAX_ARGS);
-        if (argc) {
-            sh->last_status = shell_exec(argv[0], argc, argv);
-        }
+        shell_run_line(sh, line);
     }
+    sh->tty->prompt_fn = NULL;
+    sh->tty->complete_fn = NULL;
     g_active_shell = NULL;
 }

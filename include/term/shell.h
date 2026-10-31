@@ -11,6 +11,7 @@ typedef struct {
     bool running;
     tty_t* tty;
     char cwd[128];
+    char oldpwd[128];
     int last_status;
 } shell_t;
 
