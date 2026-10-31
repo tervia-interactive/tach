@@ -45,8 +45,6 @@ static void say_number(unsigned value) {
 #define RESERVED    32u
 
 static uint8_t g_img[IMG_BYTES] __attribute__((aligned(16)));
-static uint8_t g_fat0_snapshot[600u * 512u];
-static uint8_t g_seen[CLUSTERS + 2u];
 static struct { uint32_t spc, fat_sectors, total, data_start, next; } g;
 
 static void w16(uint8_t* p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
@@ -252,7 +250,7 @@ static int test_create_names(uint32_t spc) {
     struct fat32_info in;
     TRY(fresh(spc));
     CHECK(fat32_create(g_vol, "/new.txt", &in) == 0);
-    CHECK(same(in.name, "new.txt") && same(in.short_name, "new.txt"));
+    CHECK(same(in.name, "new.txt") && same(in.short_name, "NEW.TXT"));
     CHECK(fat32_create(g_vol, "/Long File Name.txt", &in) == 0);
     CHECK(same(in.name, "Long File Name.txt") && same(in.short_name, "LONGFI~1.TXT"));
     CHECK(fat32_create(g_vol, "/Long File Name 2.txt", &in) == 0);
@@ -306,6 +304,7 @@ static int test_dirs(uint32_t spc) {
     CHECK(fat32_lookup(g_vol, "/d", &d) == 0 && (d.attr & FAT32_ATTR_DIR));
     CHECK(fat32_lookup(g_vol, "/d/e", &e) == 0);
     /* "." e ".." nos bytes da imagem (pai = raiz => ".." = 0) */
+    CHECK(fat32_sync(g_vol) == 0);          /* o cache de blocos precisa ir para a imagem */
     uint8_t* p = cluster_ptr(d.first_cluster);
     CHECK(p[0] == '.' && p[32] == '.' && p[33] == '.');
     CHECK((r16(p + 20) << 16 | r16(p + 26)) == d.first_cluster);
@@ -386,6 +385,7 @@ static int test_rename(uint32_t spc) {
     CHECK(fat32_rename(g_vol, "/d", "/e/d2") == 0);
     CHECK(fat32_lookup(g_vol, "/e/d2/moved.bin", &in) == 0);
     CHECK(fat32_lookup(g_vol, "/e/d2", &a) == 0 && fat32_lookup(g_vol, "/e", &b) == 0);
+    CHECK(fat32_sync(g_vol) == 0);
     uint8_t* p = cluster_ptr(a.first_cluster);
     CHECK((r16(p + 52) << 16 | r16(p + 58)) == b.first_cluster);
     CHECK(fat32_rename(g_vol, "/e", "/e/d2/x") == -EINVAL);

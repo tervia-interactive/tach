@@ -547,15 +547,18 @@ static void build_short_name(const uint8_t* e, struct fat32_info* info) {
             info->name[n++] = '.';
         }
         uint8_t c = raw[in_ext ? 8 + (i - base) : i];
+        /* short_name e sempre o 8.3 em maiusculas, como gravado; os bits de
+         * caixa do NT so afetam o nome de exibicao (name). */
+        uint8_t shown = c;
         if (c >= 'A' && c <= 'Z' && (in_ext ? lower_ext : lower_base))
-            c = (uint8_t)(c + ('a' - 'A'));
+            shown = (uint8_t)(c + ('a' - 'A'));
         if (c >= 0x80) {
             info->short_name[s++] = '_';
             info->name[n++] = (char)(0xC0u | (c >> 6));
             info->name[n++] = (char)(0x80u | (c & 0x3Fu));
         } else {
             info->short_name[s++] = (char)c;
-            info->name[n++] = (char)c;
+            info->name[n++] = (char)shown;
         }
     }
     info->short_name[s] = '\0';
@@ -1777,9 +1780,11 @@ static int entry_delete(struct fat32_vol* vol, uint32_t parent_first,
 /* Separa `path` em pai + folha. `parent` = entrada do diretorio pai (tem que
  * ser diretorio), `pp` = copia do caminho do pai, `leaf` = ultimo componente.
  * 0 se a folha existe (*info), -ENOENT se nao existe (pai/folha validos). */
-static int resolve_leaf(struct fat32_vol* vol, const char* path,
-                        struct fat32_info* parent, char* pp, char* leaf,
-                        struct fat32_info* info) {
+#define RESOLVE_NO_PARENT (-0x7000)   /* interno: o diretorio pai nao existe */
+
+static int resolve_leaf_ex(struct fat32_vol* vol, const char* path,
+                           struct fat32_info* parent, char* pp, char* leaf,
+                           struct fat32_info* info) {
     size_t end = strlen(path);
     while (end > 0 && path[end - 1] == '/') end--;
     size_t start = end;
@@ -1798,9 +1803,18 @@ static int resolve_leaf(struct fat32_vol* vol, const char* path,
         (leaf_len == 2 && leaf[0] == '.' && leaf[1] == '.'))
         return -EINVAL;
     int result = fat32_lookup(vol, pp, parent);
+    if (result == -ENOENT) return RESOLVE_NO_PARENT;  /* nao confundir com folha ausente */
     if (result < 0) return result;
     if (!(parent->attr & FAT32_ATTR_DIR)) return -ENOTDIR;
     return dir_find(vol, parent->first_cluster, leaf, info);
+}
+
+/* Variante para quem trata qualquer falha como erro: pai ausente = -ENOENT. */
+static int resolve_leaf(struct fat32_vol* vol, const char* path,
+                        struct fat32_info* parent, char* pp, char* leaf,
+                        struct fat32_info* info) {
+    int result = resolve_leaf_ex(vol, path, parent, pp, leaf, info);
+    return result == RESOLVE_NO_PARENT ? -ENOENT : result;
 }
 
 static int dir_is_empty(struct fat32_vol* vol, const struct fat32_info* dir) {
@@ -1856,8 +1870,9 @@ static int create_locked(struct fat32_vol* vol, const char* path, uint8_t attr,
                          struct fat32_info* out) {
     struct fat32_info parent, found;
     char pp[FAT32_PATH_BUF], leaf[FAT32_NAME_MAX + 1];
-    int result = resolve_leaf(vol, path, &parent, pp, leaf, &found);
+    int result = resolve_leaf_ex(vol, path, &parent, pp, leaf, &found);
     if (result == 0) return -EEXIST;
+    if (result == RESOLVE_NO_PARENT) return -ENOENT;
     if (result != -ENOENT) return result;
     uint16_t units[255];
     result = name_units(leaf, units);
@@ -1971,7 +1986,8 @@ static int rename_locked(struct fat32_vol* vol, const char* old_path,
     int result = resolve_leaf(vol, old_path, &op, opp, oleaf, &oi);
     if (result < 0) return result;
     if (oi.dir_cluster == 0) return -EBUSY;                  /* raiz */
-    result = resolve_leaf(vol, new_path, &np, npp, nleaf, &ni);
+    result = resolve_leaf_ex(vol, new_path, &np, npp, nleaf, &ni);
+    if (result == RESOLVE_NO_PARENT) return -ENOENT;
     bool found = result == 0;
     if (result < 0 && result != -ENOENT) return result;
     uint16_t units[255];

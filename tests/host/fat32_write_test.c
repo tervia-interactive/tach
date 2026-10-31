@@ -110,12 +110,6 @@ static void format(uint32_t spc, uint32_t ext_flags) {
     g.next = 3;
 }
 
-static uint32_t take_cluster(void) {
-    uint32_t cluster = g.next++;
-    fat_put(cluster, EOC);
-    return cluster;
-}
-
 static uint8_t pat(uint32_t seed, uint32_t i) {
     return (uint8_t)(i * 131u + (i >> 8) * 17u + seed * 7u + 3u);
 }
@@ -489,8 +483,12 @@ static int test_denied(uint32_t spc) {
     CHECK(ro);
     ro->ops->release(ro);
     CHECK(fat32_vnode_open(g_vol, "/", O_WRONLY, &err) == NULL && err == -EISDIR);
-    CHECK(fat32_vnode_open(g_vol, "/NOVO.TXT", O_WRONLY | O_CREAT, &err) == NULL &&
-          err == -ENOSYS);                          /* create: etapa 3.2 */
+    /* create foi implementado nas operacoes de diretorio (etapa 3.2): em
+     * volume gravavel o arquivo e criado e removido de novo. */
+    struct vnode* created = fat32_vnode_open(g_vol, "/NOVO.TXT", O_WRONLY | O_CREAT, &err);
+    CHECK(created != NULL);
+    created->ops->release(created);
+    CHECK(fat32_unlink(g_vol, "/NOVO.TXT") == 0);
     TRY(open_node("/B.BIN", &node));
     CHECK(fat32_write(g_vol, &node, 0xFFFFFFFFu, "x", 1) == -EFBIG);
     CHECK(node.info.size == 1000);
