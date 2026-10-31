@@ -130,7 +130,9 @@ int main(void) {
     CHECK(entry_at("/dev", 0, name, &type) == 1 &&
           strcmp(name, "console") == 0 && type == VNODE_CHAR);
     CHECK(entry_at("/dev", 1, name, &type) == 1 && strcmp(name, "tty") == 0);
-    CHECK(entry_at("/dev", 2, name, &type) == 0);
+    CHECK(entry_at("/dev", 2, name, &type) == 1 && strcmp(name, "null") == 0);
+    CHECK(entry_at("/dev", 3, name, &type) == 1 && strcmp(name, "zero") == 0);
+    CHECK(entry_at("/dev", 4, name, &type) == 0);
     CHECK(entry_at("/etc", 0, name, &type) == 1 && strcmp(name, "conf") == 0 &&
           type == VNODE_DIR);
     CHECK(entry_at("/etc/conf", 0, name, &type) == 1 &&
@@ -163,6 +165,17 @@ int main(void) {
           info.st_size == 0);
     CHECK(vfs_stat("/", &info) == 0 && TACH_S_ISDIR(info.st_mode));
     CHECK(vfs_stat("/dev/console", &info) == 0 && TACH_S_ISCHR(info.st_mode));
+    {
+        char buf[8];
+        memset(buf, 0x55, sizeof(buf));
+        struct vnode* zero = vfs_open("/dev/zero", O_RDONLY);
+        CHECK(zero && zero->ops->read(zero, buf, sizeof(buf), 0) == (ssize_t)sizeof(buf));
+        CHECK(buf[0] == 0 && buf[7] == 0);
+        struct vnode* null = vfs_open("/dev/null", O_WRONLY);
+        CHECK(null && null->ops->write(null, "abc", 3, 0) == 3);
+        CHECK(null && null->ops->read(null, buf, sizeof(buf), 0) == 0);
+        CHECK(vfs_stat("/dev/null", &info) == 0 && TACH_S_ISCHR(info.st_mode));
+    }
     CHECK(vfs_stat("/nada", &info) == -ENOENT);
     CHECK(vfs_stat("/tmp/z", &info) == 0 && info.st_size == 3);
     /* O stat nao pode deixar o arquivo "aberto": o unlink tem de passar. */

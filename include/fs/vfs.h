@@ -89,6 +89,8 @@ int vfs_mount_fs(const char* path, const struct vfs_fsops* ops, void* fs);
 /* sync + unmount do FS; -EBUSY se houver arquivo aberto; -EINVAL se `path`
  * nao for exatamente um ponto de montagem. */
 int vfs_umount(const char* path);
+/* Caminho do index-esimo ponto de montagem em uso; NULL ao fim da lista. */
+const char* vfs_mount_path(size_t index);
 int vfs_mkdir(const char* path);
 int vfs_rmdir(const char* path);
 /* -EXDEV entre montagens diferentes. */

@@ -36,3 +36,7 @@ an embedded board or an odd device.
 - [ ] Networking (virtio-net, TCP/IP) as an optional layer
 - [ ] Finish userspace isolation on arm32, aarch64, riscv32, riscv64
 - [ ] Device-tree driven hardware discovery for non-PC boards
+
+## Scheduling note
+
+ARM and RISC-V work (userspace isolation, drivers, userland) is planned for 0.9. Until then, 0.0.x and 0.1 focus on x86: `/dev` and VFS, shell, build profiles, framebuffer, AHCI and USB HID.

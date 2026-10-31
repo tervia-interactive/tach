@@ -9,6 +9,8 @@
 
 static struct vnode g_root;
 static struct vnode g_console;
+static struct vnode g_null;
+static struct vnode g_zero;
 static struct vnode g_memfiles[VFS_MAX_MEMFILES];
 static size_t g_memfile_count;
 
@@ -87,7 +89,32 @@ static ssize_t console_read(struct vnode* vnode, void* buffer, size_t count,
     (void)vnode; (void)offset;
     if (!buffer) return -EFAULT;
     char* output = (char*)buffer;
-    for (size_t i = 0; i < count; i++) output[i] = hal_console_getchar();
+    for (size_t i = 0; i < count; i++) {
+        char c = hal_console_getchar();
+        /* Ctrl+D (EOT): fim de arquivo. Devolve o que ja foi lido; com
+         * nada lido, read() devolve 0 e programas como `cat` terminam. */
+        if (c == 0x04) return (ssize_t)i;
+        output[i] = c;
+    }
+    return (ssize_t)count;
+}
+
+/* /dev/null: leitura = EOF, escrita descarta. /dev/zero: leitura = zeros. */
+static ssize_t null_read(struct vnode* vnode, void* buffer, size_t count,
+                         int64_t offset) {
+    (void)vnode; (void)buffer; (void)count; (void)offset;
+    return 0;
+}
+static ssize_t null_write(struct vnode* vnode, const void* buffer,
+                          size_t count, int64_t offset) {
+    (void)vnode; (void)buffer; (void)offset;
+    return (ssize_t)count;
+}
+static ssize_t zero_read(struct vnode* vnode, void* buffer, size_t count,
+                         int64_t offset) {
+    (void)vnode; (void)offset;
+    if (!buffer) return -EFAULT;
+    memset(buffer, 0, count);
     return (ssize_t)count;
 }
 
@@ -112,6 +139,14 @@ static ssize_t memfile_read(struct vnode* vnode, void* buffer, size_t count,
 static struct vnode_ops g_console_ops = {
     .open = simple_open, .close = simple_close,
     .read = console_read, .write = console_write, .readdir = NULL
+};
+static struct vnode_ops g_null_ops = {
+    .open = simple_open, .close = simple_close,
+    .read = null_read, .write = null_write, .readdir = NULL
+};
+static struct vnode_ops g_zero_ops = {
+    .open = simple_open, .close = simple_close,
+    .read = zero_read, .write = null_write, .readdir = NULL
 };
 static struct vnode_ops g_memfile_ops = {
     .open = simple_open, .close = simple_close,
@@ -152,6 +187,8 @@ struct vfs_fixed_entry {
 static const struct vfs_fixed_entry g_fixed[] = {
     {"/dev/console", VNODE_CHAR},
     {"/dev/tty", VNODE_CHAR},
+    {"/dev/null", VNODE_CHAR},
+    {"/dev/zero", VNODE_CHAR},
     {"/tmp", VNODE_DIR},
 };
 #define VFS_FIXED_COUNT (sizeof(g_fixed) / sizeof(g_fixed[0]))
@@ -322,6 +359,18 @@ void vfs_init(void) {
     g_console.parent = &g_root;
     g_console.ops = &g_console_ops;
     g_console.refcount = 1;
+    memset(&g_null, 0, sizeof(g_null));
+    g_null.type = VNODE_CHAR;
+    g_null.name = "null";
+    g_null.parent = &g_root;
+    g_null.ops = &g_null_ops;
+    g_null.refcount = 1;
+    memset(&g_zero, 0, sizeof(g_zero));
+    g_zero.type = VNODE_CHAR;
+    g_zero.name = "zero";
+    g_zero.parent = &g_root;
+    g_zero.ops = &g_zero_ops;
+    g_zero.refcount = 1;
     memset(g_memfiles, 0, sizeof(g_memfiles));
     g_memfile_count = 0;
     memset(g_mounts, 0, sizeof(g_mounts));
@@ -356,6 +405,8 @@ struct vnode* vfs_open_err(const char* path, int flags, int* error) {
     if (strcmp(path, "/") == 0) vnode = &g_root;
     else if (strcmp(path, "/dev/console") == 0 ||
              strcmp(path, "/dev/tty") == 0) vnode = &g_console;
+    else if (strcmp(path, "/dev/null") == 0) vnode = &g_null;
+    else if (strcmp(path, "/dev/zero") == 0) vnode = &g_zero;
     else if (tmpfs_owns(path)) {
         vnode = tmpfs_lookup(path, flags, error);
         if (!vnode) return NULL;
@@ -420,6 +471,15 @@ int vfs_mount_fs(const char* path, const struct vfs_fsops* ops, void* fs) {
     free_slot->ops = ops;
     free_slot->fs = fs;
     return 0;
+}
+
+/* Caminho do `index`-esimo ponto de montagem em uso (para /proc/mounts). */
+const char* vfs_mount_path(size_t index) {
+    for (size_t i = 0; i < VFS_MAX_MOUNTS; i++) {
+        if (!g_mounts[i].used) continue;
+        if (index-- == 0) return g_mounts[i].path;
+    }
+    return NULL;
 }
 
 int vfs_umount(const char* path) {

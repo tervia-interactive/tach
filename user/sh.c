@@ -297,11 +297,13 @@ static void command_help(void) {
         "  cat <file>...        print files (/proc/version, /proc/meminfo, ...)\n"
         "  history              show command history\n"
         "  kill [-sig] <pid>... send a signal (default SIGTERM)\n"
-        "  touch <file>...      create empty files (only under /tmp)\n"
-        "  rm <file>...         remove files (only under /tmp)\n"
-        "  cmd > file | >> file redirect stdout (file under /tmp)\n"
+        "  touch <file>...      create empty files (writable mounts)\n"
+        "  rm <file>...         remove files (writable mounts)\n"
+        "  cmd > file | >> file redirect stdout to a file\n"
         "  cmd < file           redirect stdin from a file\n"
         "  a | b | c            pipe stdout to stdin (up to 4 stages)\n"
+        "  a ; b | a && b | a || b   chain commands (operators as separate words)\n"
+        "  $?                   (as a word) status of the previous command\n"
         "  syscalls             show active syscall ABI entries\n"
         "  status               show the previous command status\n"
         "  true | false         succeed / fail\n"
@@ -842,6 +844,51 @@ static int run_line(int argc, char** argv) {
     return run_pipeline(stages);
 }
 
+/* Encadeamento: "a ; b", "a && b", "a || b" (operadores como palavras
+ * separadas). "$?" sozinho vira o status do comando anterior. */
+static char g_status_text[16];
+
+static void expand_status_words(int argc, char** argv) {
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "$?") != 0) continue;
+        unsigned long value = g_last_status < 0 ? 0UL - (unsigned long)g_last_status
+                                                : (unsigned long)g_last_status;
+        char digits[12];
+        unsigned count = 0;
+        do { digits[count++] = (char)('0' + value % 10); value /= 10; } while (value);
+        unsigned pos = 0;
+        if (g_last_status < 0) g_status_text[pos++] = '-';
+        while (count) g_status_text[pos++] = digits[--count];
+        g_status_text[pos] = 0;
+        argv[i] = g_status_text;
+    }
+}
+
+static void run_chain(int argc, char** argv) {
+    int start = 0;
+    int run = 1;
+    for (int i = 0; i <= argc; i++) {
+        int is_semi = i < argc && strcmp(argv[i], ";") == 0;
+        int is_and = i < argc && strcmp(argv[i], "&&") == 0;
+        int is_or = i < argc && strcmp(argv[i], "||") == 0;
+        if (i < argc && !is_semi && !is_and && !is_or) continue;
+        if (i > start && run) {
+            char* saved = i < argc ? argv[i] : (char*)0;
+            argv[i] = (char*)0;
+            expand_status_words(i - start, &argv[start]);
+            g_last_status = run_line(i - start, &argv[start]);
+            if (i < argc) argv[i] = saved;
+        } else if (i == start && i < argc) {
+            err("sh: syntax error near operator\n");
+            g_last_status = 2;
+            return;
+        }
+        if (i == argc) break;
+        run = is_semi ? 1 : is_and ? (g_last_status == 0) : (g_last_status != 0);
+        start = i + 1;
+    }
+}
+
 int main(void) {
     g_hist_count = 0;
     g_hist_head = 0;
@@ -857,6 +904,6 @@ int main(void) {
         hist_add(line);
         int argc = parse_line(line, argv, ARGV_MAX);
         if (!argc) continue;
-        g_last_status = run_line(argc, argv);
+        run_chain(argc, argv);
     }
 }

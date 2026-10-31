@@ -768,6 +768,12 @@ const char* syscall_name(int num) {
         case SYS_GETDENTS: return "getdents";
         case SYS_CHDIR: return "chdir";
         case SYS_GETCWD: return "getcwd";
+        case SYS_MKDIR: return "mkdir";
+        case SYS_RMDIR: return "rmdir";
+        case SYS_RENAME: return "rename";
+        case SYS_SYNC: return "sync";
+        case SYS_MOUNT: return "mount";
+        case SYS_UMOUNT: return "umount";
         default: return NULL;
     }
 }

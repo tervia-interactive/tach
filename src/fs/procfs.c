@@ -18,8 +18,9 @@
 #include <mm/pmm.h>
 #include <proc/process.h>
 #include <proc/syscall.h>
+#include <fs/vfs.h>
 
-#define PROCFS_FILE_COUNT 6
+#define PROCFS_FILE_COUNT 7
 #define PROCFS_BUFFER_SIZE 2048
 
 static spinlock_t g_procfs_lock = SPINLOCK_INIT;
@@ -96,6 +97,13 @@ static void gen_syscalls(void) {
     }
 }
 
+static void gen_mounts(void) {
+    pf("initrd / ro\ntmpfs /tmp rw\nprocfs /proc ro\n");
+    const char* path;
+    for (size_t i = 0; (path = vfs_mount_path(i)) != NULL; i++)
+        pf("fat32 %s rw\n", path);
+}
+
 static const struct {
     const char* path;
     void (*generate)(void);
@@ -106,6 +114,7 @@ static const struct {
     {"/proc/self/status", gen_self_status},
     {"/proc/ps", gen_ps},
     {"/proc/syscalls", gen_syscalls},
+    {"/proc/mounts", gen_mounts},
 };
 
 /* Um unico snapshot compartilhado (protegido por g_procfs_lock). Mantemos o

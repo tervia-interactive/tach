@@ -56,9 +56,6 @@ make ARCH=aarch64
 make ARCH=riscv32
 make ARCH=riscv64
 
-# Build all architectures
-make all-archs
-
 # Clean build
 make clean
 
