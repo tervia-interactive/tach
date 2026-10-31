@@ -331,7 +331,7 @@ static int test_unlink(uint32_t spc) {
     TRY(fresh(spc));
     uint32_t free0 = free_now();
     CHECK(fat32_unlink(g_vol, "/B.BIN") == 0);
-    CHECK(free_now() == free0 + 1u);
+    CHECK(free_now() == free0 + (1000u + csize() - 1u) / csize());
     CHECK(fat32_unlink(g_vol, "/B.BIN") == -ENOENT);
     CHECK(fat32_unlink(g_vol, "/RO.TXT") == -EACCES);
     TRY(reopen());

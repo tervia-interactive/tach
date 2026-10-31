@@ -153,4 +153,7 @@ struct vnode* fat32_vnode_open(struct fat32_vol* vol, const char* path,
 /* Equivalente a vfs_readdir para um vnode criado por fat32_vnode_open. */
 int fat32_vnode_readdir(struct vnode* dir, size_t index, struct dirent* entry);
 
+/* Monta `dev` (FAT32) em `path` na tabela de montagem do VFS (etapa 4.1). */
+int fat32_vfs_mount(struct blkdev* dev, const char* path);
+
 #endif /* _FS_FAT32_H */

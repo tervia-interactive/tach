@@ -55,6 +55,23 @@ struct vnode_ops {
      * Anonymous pipes use them to count open read/write ends. */
     void (*dup)(struct vnode* vn);
     void (*release)(struct vnode* vn);
+    /* Opcional: entrada `index` do diretorio (FS montados; vfs_readdir usa
+     * isto antes do caminho por strings). 1 = preenchida, 0 = fim, -errno. */
+    int (*readdir_at)(struct vnode* vn, size_t index, struct dirent* entry);
+};
+
+/* Operacoes de um sistema de arquivos montado em /algum/diretorio. Os
+ * caminhos recebidos sao relativos a raiz do FS ("/" = a propria raiz).
+ * Ponteiros NULL => -ENOTSUP. (Por montagem, e nao por vnode, porque o VFS
+ * ainda e baseado em caminhos.) */
+struct vfs_fsops {
+    struct vnode* (*open)(void* fs, const char* rel, int flags, int* error);
+    int (*unlink)(void* fs, const char* rel);
+    int (*mkdir)(void* fs, const char* rel);
+    int (*rmdir)(void* fs, const char* rel);
+    int (*rename)(void* fs, const char* old_rel, const char* new_rel);
+    int (*sync)(void* fs);
+    int (*unmount)(void* fs);       /* -EBUSY se houver arquivos abertos */
 };
 
 void vfs_init(void);
@@ -64,6 +81,19 @@ struct vnode* vfs_open(const char* path, int flags);
 /* Como vfs_open, mas grava em *error o -errno da falha (ENOENT, ENOSPC...). */
 struct vnode* vfs_open_err(const char* path, int flags, int* error);
 int vfs_unlink(const char* path);
+
+/* Tabela de montagem (8 entradas). `path` absoluto, normalizado, diferente de
+ * "/" e com ate 63 bytes. Roteamento por MAIOR PREFIXO com fronteira de
+ * componente (/mnt nao casa /mntx), antes de /tmp e /proc. */
+int vfs_mount_fs(const char* path, const struct vfs_fsops* ops, void* fs);
+/* sync + unmount do FS; -EBUSY se houver arquivo aberto; -EINVAL se `path`
+ * nao for exatamente um ponto de montagem. */
+int vfs_umount(const char* path);
+int vfs_mkdir(const char* path);
+int vfs_rmdir(const char* path);
+/* -EXDEV entre montagens diferentes. */
+int vfs_rename(const char* old_path, const char* new_path);
+int vfs_sync(void);             /* sync de todas as montagens */
 
 /* Diretorios: /, /dev, /proc, /proc/self e qualquer prefixo de arquivo do
  * initrd (/bin, /sbin...) existem de verdade; /tmp e tratado pelo tmpfs. */

@@ -36,6 +36,7 @@
 #include <fs/devfs.h>
 #include <fs/procfs.h>
 #include <fs/initrd.h>
+#include <fs/fat32.h>
 #include <drivers/block/ahci.h>
 #include <drivers/block/ata.h>
 #include <drivers/block/blk.h>
@@ -201,6 +202,20 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
         klog_info("ata", "no ATA disks found on the legacy IDE channels");
     klog_warn("ahci", "no AHCI controller found on PCI bus, disk subsystem unavailable");
     ahci_init();
+
+    /* Automount: primeiro dispositivo de bloco (particao ou disco inteiro)
+     * com FAT32 vai para /mnt. Sem disco nao e erro. */
+    {
+        bool mounted = false;
+        for (size_t i = 0; i < blk_count() && !mounted; i++) {
+            struct blkdev* d = blk_get(i);
+            if (d && fat32_vfs_mount(d, "/mnt") == 0) {
+                klog_info("fs", "fat32: %s mounted on /mnt", d->name);
+                mounted = true;
+            }
+        }
+        if (!mounted) klog_info("fs", "no FAT32 volume found, /mnt not mounted");
+    }
 
     klog_info("input", "ps2: initializing 8042 keyboard controller");
     if (keyboard_ps2_init() == 0) {

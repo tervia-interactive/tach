@@ -12,6 +12,34 @@ static struct vnode g_console;
 static struct vnode g_memfiles[VFS_MAX_MEMFILES];
 static size_t g_memfile_count;
 
+#define VFS_MAX_MOUNTS     8
+#define VFS_MOUNT_PATH_MAX 64
+struct vfs_mount {
+    bool used;
+    char path[VFS_MOUNT_PATH_MAX];
+    const struct vfs_fsops* ops;
+    void* fs;
+};
+static struct vfs_mount g_mounts[VFS_MAX_MOUNTS];
+
+/* Montagem de maior prefixo (fronteira de componente). *rel = resto do
+ * caminho dentro do FS ("/" se for o proprio ponto de montagem). */
+static struct vfs_mount* mount_find(const char* path, const char** rel) {
+    struct vfs_mount* best = NULL;
+    size_t best_len = 0;
+    if (!path) return NULL;
+    for (size_t i = 0; i < VFS_MAX_MOUNTS; i++) {
+        struct vfs_mount* m = &g_mounts[i];
+        if (!m->used) continue;
+        size_t len = strlen(m->path);
+        if (strncmp(path, m->path, len) != 0) continue;
+        if (path[len] != '\0' && path[len] != '/') continue;
+        if (len > best_len) { best = m; best_len = len; }
+    }
+    if (best && rel) *rel = path[best_len] ? path + best_len : "/";
+    return best;
+}
+
 /* Fallback fraco: binarios sem procfs.c (ex.: host test) veem /proc vazio.
  * O procfs.c do kernel define a versao forte. */
 __attribute__((weak)) struct vnode* procfs_lookup(const char* path) {
@@ -230,6 +258,8 @@ static struct vnode* dir_vnode(const char* path, int* error) {
 int vfs_readdir(struct vnode* dir, size_t index, struct dirent* entry) {
     if (!dir || !entry) return -EINVAL;
     if (dir->type != VNODE_DIR) return -ENOTDIR;
+    if (dir->ops && dir->ops->readdir_at)
+        return dir->ops->readdir_at(dir, index, entry);
     const char* path = dir == &g_root ? "/" : dir->path;
     if (!path[0]) return -EINVAL;
     if (strcmp(path, "/tmp") == 0) return tmpfs_list(index, entry);
@@ -294,6 +324,7 @@ void vfs_init(void) {
     g_console.refcount = 1;
     memset(g_memfiles, 0, sizeof(g_memfiles));
     g_memfile_count = 0;
+    memset(g_mounts, 0, sizeof(g_mounts));
 }
 
 struct vnode* vfs_root(void) { return &g_root; }
@@ -309,6 +340,18 @@ int vfs_mount(const char* path, struct vnode* root) {
 struct vnode* vfs_open_err(const char* path, int flags, int* error) {
     if (error) *error = -ENOENT;
     if (!path) return NULL;
+    const char* rel;
+    struct vfs_mount* mnt = mount_find(path, &rel);
+    if (mnt) {
+        if (!mnt->ops->open) {
+            if (error) *error = -ENOTSUP;
+            return NULL;
+        }
+        int err = 0;
+        struct vnode* mv = mnt->ops->open(mnt->fs, rel, flags, &err);
+        if (error) *error = mv ? 0 : (err < 0 ? err : -ENOENT);
+        return mv;
+    }
     struct vnode* vnode = NULL;
     if (strcmp(path, "/") == 0) vnode = &g_root;
     else if (strcmp(path, "/dev/console") == 0 ||
@@ -349,8 +392,90 @@ struct vnode* vfs_open(const char* path, int flags) {
 /* Remove um arquivo. Somente /tmp e gravavel; o resto e somente leitura. */
 int vfs_unlink(const char* path) {
     if (!path) return -EINVAL;
+    const char* rel;
+    struct vfs_mount* mnt = mount_find(path, &rel);
+    if (mnt) return mnt->ops->unlink ? mnt->ops->unlink(mnt->fs, rel) : -ENOTSUP;
     if (tmpfs_owns(path)) return tmpfs_unlink(path);
     return -EROFS;
+}
+
+int vfs_mount_fs(const char* path, const struct vfs_fsops* ops, void* fs) {
+    if (!path || !ops || path[0] != '/') return -EINVAL;
+    size_t len = strlen(path);
+    if (len < 2 || len >= VFS_MOUNT_PATH_MAX) return len < 2 ? -EINVAL : -ENAMETOOLONG;
+    char norm[VFS_MOUNT_PATH_MAX];
+    memcpy(norm, path, len + 1);
+    if (vfs_normalize_path(norm) < 0 || strcmp(norm, path) != 0) return -EINVAL;
+    struct vfs_mount* free_slot = NULL;
+    for (size_t i = 0; i < VFS_MAX_MOUNTS; i++) {
+        if (g_mounts[i].used) {
+            if (strcmp(g_mounts[i].path, path) == 0) return -EBUSY;
+        } else if (!free_slot) {
+            free_slot = &g_mounts[i];
+        }
+    }
+    if (!free_slot) return -ENOSPC;
+    free_slot->used = true;
+    memcpy(free_slot->path, path, len + 1);
+    free_slot->ops = ops;
+    free_slot->fs = fs;
+    return 0;
+}
+
+int vfs_umount(const char* path) {
+    if (!path) return -EINVAL;
+    for (size_t i = 0; i < VFS_MAX_MOUNTS; i++) {
+        struct vfs_mount* m = &g_mounts[i];
+        if (!m->used || strcmp(m->path, path) != 0) continue;
+        if (m->ops->sync) {
+            int result = m->ops->sync(m->fs);
+            if (result < 0) return result;
+        }
+        if (m->ops->unmount) {
+            int result = m->ops->unmount(m->fs);
+            if (result < 0) return result;
+        }
+        memset(m, 0, sizeof(*m));
+        return 0;
+    }
+    return -EINVAL;
+}
+
+int vfs_mkdir(const char* path) {
+    const char* rel;
+    struct vfs_mount* m = mount_find(path, &rel);
+    if (!path) return -EINVAL;
+    if (!m) return -EROFS;
+    return m->ops->mkdir ? m->ops->mkdir(m->fs, rel) : -ENOTSUP;
+}
+
+int vfs_rmdir(const char* path) {
+    const char* rel;
+    struct vfs_mount* m = mount_find(path, &rel);
+    if (!path) return -EINVAL;
+    if (!m) return -EROFS;
+    return m->ops->rmdir ? m->ops->rmdir(m->fs, rel) : -ENOTSUP;
+}
+
+int vfs_rename(const char* old_path, const char* new_path) {
+    const char *r1, *r2;
+    if (!old_path || !new_path) return -EINVAL;
+    struct vfs_mount* a = mount_find(old_path, &r1);
+    struct vfs_mount* b = mount_find(new_path, &r2);
+    if (a != b) return -EXDEV;
+    if (!a) return -EROFS;
+    return a->ops->rename ? a->ops->rename(a->fs, r1, r2) : -ENOTSUP;
+}
+
+int vfs_sync(void) {
+    int first = 0;
+    for (size_t i = 0; i < VFS_MAX_MOUNTS; i++) {
+        struct vfs_mount* m = &g_mounts[i];
+        if (!m->used || !m->ops->sync) continue;
+        int result = m->ops->sync(m->fs);
+        if (result < 0 && !first) first = result;
+    }
+    return first;
 }
 
 int vfs_close(struct vnode* vnode) {

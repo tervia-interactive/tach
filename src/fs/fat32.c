@@ -1281,6 +1281,7 @@ static void fv_release(struct vnode* vn) {
 static struct vnode_ops g_fat32_ops = {
     .open = NULL, .close = NULL, .read = fv_read, .write = fv_write,
     .readdir = NULL, .dup = fv_dup, .release = fv_release,
+    .readdir_at = fat32_vnode_readdir,
 };
 
 /* Dois descritores abertos para o mesmo arquivo compartilham UM vnode/no
@@ -2030,5 +2031,34 @@ int fat32_rename(struct fat32_vol* vol, const char* old_path,
     if (result < 0) return result;
     result = rename_locked(vol, old_path, new_path);
     dirop_leave(vol);
+    return result;
+}
+
+/* ------------------------------------------------------- cola com o VFS (4.1) */
+
+static struct vnode* fsop_open(void* fs, const char* rel, int flags, int* err) {
+    return fat32_vnode_open((struct fat32_vol*)fs, rel, flags, err);
+}
+static int fsop_unlink(void* fs, const char* rel) { return fat32_unlink((struct fat32_vol*)fs, rel); }
+static int fsop_mkdir(void* fs, const char* rel) { return fat32_mkdir((struct fat32_vol*)fs, rel); }
+static int fsop_rmdir(void* fs, const char* rel) { return fat32_rmdir((struct fat32_vol*)fs, rel); }
+static int fsop_rename(void* fs, const char* a, const char* b) {
+    return fat32_rename((struct fat32_vol*)fs, a, b);
+}
+static int fsop_sync(void* fs) { return fat32_sync((struct fat32_vol*)fs); }
+static int fsop_unmount(void* fs) { return fat32_unmount((struct fat32_vol*)fs); }
+
+static const struct vfs_fsops g_fat32_fsops = {
+    .open = fsop_open, .unlink = fsop_unlink, .mkdir = fsop_mkdir,
+    .rmdir = fsop_rmdir, .rename = fsop_rename, .sync = fsop_sync,
+    .unmount = fsop_unmount,
+};
+
+int fat32_vfs_mount(struct blkdev* dev, const char* path) {
+    struct fat32_vol* vol;
+    int result = fat32_mount(dev, &vol);
+    if (result < 0) return result;
+    result = vfs_mount_fs(path, &g_fat32_fsops, vol);
+    if (result < 0) (void)fat32_unmount(vol);
     return result;
 }
