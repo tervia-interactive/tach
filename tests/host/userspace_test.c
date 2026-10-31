@@ -15,6 +15,12 @@
 #include <term/tty.h>
 #include <term/vterm.h>
 #include <userland/runtime.h>
+#include <mm/pmm.h>
+/* kheap.c (linked in for blk.c / fat32.c, which syscall.c now references)
+ * needs the page allocator; these tests never allocate through it. */
+void* pmm_alloc_pages(size_t count) { (void)count; return NULL; }
+void pmm_free_pages(void* pages, size_t count) { (void)pages; (void)count; }
+
 
 #define CHECK(expr) do { if (!(expr)) return __LINE__; } while (0)
 
