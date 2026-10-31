@@ -1,5 +1,5 @@
 /*
- * tach - A minimal open source Operating System
+ * tach - An open source, universal Operating System
  * Copyright 2026 Tervia Interactive™
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");

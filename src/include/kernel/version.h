@@ -8,14 +8,14 @@
 
 /* Version components */
 #define TACH_VERSION_MAJOR  0
-#define TACH_VERSION_MINOR  1
-#define TACH_VERSION_PATCH  0
-#define TACH_VERSION_DEV    1
+#define TACH_VERSION_MINOR  0
+#define TACH_VERSION_PATCH  10
+#define TACH_VERSION_DEV    0
 
 /* Version string */
-#define TACH_VERSION_STRING "0.1.0-dev"
+#define TACH_VERSION_STRING "0.0.10"
 #define TACH_NAME           "tach"
-#define TACH_RELEASE        "tach-0.1.0-dev"
+#define TACH_RELEASE        "tach-0.0.10"
 
 /* Build info */
 extern const char* tach_build_date;

@@ -1,14 +1,17 @@
 # tach
 
-A stable, minimal operating system written in C with support for multiple architectures.
+A free, practical and universal operating system written in C, for many architectures and many kinds of devices. Current version: **0.0.10**.
 
 ## Overview
 
-**tach** is a hobby operating system designed to be:
-- **Stable**: Built with solid foundations and proper error handling
-- **Minimal**: Only essential components, no bloat
-- **Portable**: Supports x86, x86_64, ARM, ARM64, RISC-V 32/64
-- **Modern**: Uses modern development practices and CI/CD
+**tach** is an operating system that lets *you* decide what it becomes. It is built around:
+- **Freedom**: you choose the shape of the system. Nothing is forced on you
+- **Practicality**: it should be useful out of the box, with real tools and a real shell
+- **Stability**: solid foundations and proper error handling, whatever you enable
+- **Universality**: the same code base targets x86, x86_64, ARM, ARM64 and RISC-V 32/64, from PCs to unusual devices
+- **Modularity**: every large piece is optional. Headless and tiny, a text-mode PC, or a full graphical desktop with a compositor are all valid configurations of the same system
+
+tach is no longer aiming to be "minimal". The core stays small and well tested, but the system is meant to grow big, as optional layers you pick at build time. See [ROADMAP.md](ROADMAP.md).
 
 ## Supported Architectures
 

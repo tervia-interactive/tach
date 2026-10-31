@@ -1,5 +1,5 @@
 /*
- * tach - A minimal open source Operating System
+ * tach - An open source, universal Operating System
  * Copyright 2026 Tervia Interactive™
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -35,7 +35,7 @@ void kernel_main(void) {
     kernel_init();
     
     vga_println("Welcome to tach");
-    vga_println("Version: 0.1.0-dev");
+    vga_println("Version: 0.0.10");
     vga_println("");
     vga_println("System initialized successfully.");
     vga_println("Type 'help' for available commands.");
