@@ -15,6 +15,12 @@ typedef long off_t;
 #define SYS_CLOSE 6
 #define SYS_WAITPID 7
 #define SYS_UNLINK 10
+#define SYS_MOUNT 21
+#define SYS_UMOUNT 22
+#define SYS_SYNC 36
+#define SYS_RENAME 38
+#define SYS_MKDIR 39
+#define SYS_RMDIR 40
 #define SYS_EXECVE 11
 #define SYS_CHDIR 12
 #define SYS_BRK 17
@@ -134,6 +140,12 @@ ssize_t write(int fd, const void* buffer, size_t count);
 int open(const char* path, int flags);
 int close(int fd);
 int unlink(const char* path);
+int mkdir(const char* path, int mode);
+int rmdir(const char* path);
+int rename(const char* old_path, const char* new_path);
+int sync(void);
+int mount(const char* source, const char* target, const char* fstype);
+int umount(const char* target);
 pid_t fork(void);
 int execve(const char* path, char* const argv[], char* const envp[]);
 pid_t waitpid(pid_t pid, int* status, int options);

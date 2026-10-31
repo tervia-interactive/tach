@@ -42,6 +42,22 @@ int close(int fd) { return (int)raw_syscall(SYS_CLOSE, fd, 0, 0, 0, 0, 0); }
 int unlink(const char* path) {
     return (int)raw_syscall(SYS_UNLINK, (long)path, 0, 0, 0, 0, 0);
 }
+int mkdir(const char* path, int mode) {
+    return (int)raw_syscall(SYS_MKDIR, (long)path, mode, 0, 0, 0, 0);
+}
+int rmdir(const char* path) {
+    return (int)raw_syscall(SYS_RMDIR, (long)path, 0, 0, 0, 0, 0);
+}
+int rename(const char* old_path, const char* new_path) {
+    return (int)raw_syscall(SYS_RENAME, (long)old_path, (long)new_path, 0, 0, 0, 0);
+}
+int sync(void) { return (int)raw_syscall(SYS_SYNC, 0, 0, 0, 0, 0, 0); }
+int mount(const char* source, const char* target, const char* fstype) {
+    return (int)raw_syscall(SYS_MOUNT, (long)source, (long)target, (long)fstype, 0, 0, 0);
+}
+int umount(const char* target) {
+    return (int)raw_syscall(SYS_UMOUNT, (long)target, 0, 0, 0, 0, 0);
+}
 pid_t fork(void) { return (pid_t)raw_syscall(SYS_FORK, 0, 0, 0, 0, 0, 0); }
 int execve(const char* path, char* const argv[], char* const envp[]) {
     return (int)raw_syscall(SYS_EXECVE, (long)path, (long)argv,

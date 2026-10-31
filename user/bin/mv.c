@@ -2,8 +2,13 @@
 #include <tachc.h>
 
 /* mv origem destino | mv origem... diretorio
- * Sem syscall rename: copia o conteudo e remove a origem (so arquivos
- * comuns, e so apaga a origem se a copia terminou sem erro). */
+ * Tenta rename() primeiro (atomico, funciona para diretorios na mesma
+ * montagem). Se a montagem nao suporta (EXDEV/EROFS/ENOTSUP), copia o
+ * conteudo e remove a origem (so arquivos comuns, e so apaga a origem se a
+ * copia terminou sem erro). */
+#define MV_EXDEV 18
+#define MV_EROFS 30
+#define MV_ENOTSUP 103
 
 #define PATH_MAX_LEN 256
 
@@ -22,8 +27,14 @@ static int move_one(const char* src, const char* dst) {
         eprintf("mv: %s: no such file\n", src);
         return 1;
     }
+    int renamed = rename(src, dst);
+    if (renamed == 0) return 0;
+    if (renamed != -MV_EXDEV && renamed != -MV_EROFS && renamed != -MV_ENOTSUP) {
+        eprintf("mv: cannot move %s to %s\n", src, dst);
+        return 1;
+    }
     if (S_ISDIR(g_src_stat.st_mode)) {
-        eprintf("mv: %s: moving directories is not supported\n", src);
+        eprintf("mv: %s: moving directories across file systems is not supported\n", src);
         return 1;
     }
     if (stat(dst, &g_dst_stat) == 0) {

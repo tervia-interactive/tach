@@ -24,7 +24,8 @@ CRT := crt/$(ARCH).S
 # shell tambem tem como builtin (cat, echo), o builtin vence na linha de
 # comando; a versao externa serve para pipelines, xargs e execucao direta.
 BINS := head tail wc cp mv grep hexdump tee seq basename dirname stat nl rev \
-        sort uniq cut tr tac find du free xargs cat echo
+        sort uniq cut tr tac find du free xargs cat echo \
+        mkdir rmdir sync mount umount
 
 LIBOBJS := $(BUILD)/crt.o $(BUILD)/libc.o $(BUILD)/ext.o
 HDRS := include/tach.h include/tachc.h

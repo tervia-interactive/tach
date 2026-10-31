@@ -9,6 +9,8 @@
 #include <mm/vmm.h>
 #include <kernel/signal.h>
 #include <kernel/userptr.h>
+#include <drivers/block/blk.h>
+#include <fs/fat32.h>
 
 static syscall_handler_t g_syscalls[SYSCALL_TABLE_SIZE];
 
@@ -596,6 +598,98 @@ static long sys_getcwd(uint64_t buffer, uint64_t size, uint64_t unused3,
     return result < 0 ? result : (long)length;
 }
 
+/* ---- etapa 4.2: mkdir/rmdir/rename/sync/mount/umount ---- */
+
+static long path_op(uint64_t user_path, int (*fn)(const char*)) {
+    struct process* proc = process_get_current();
+    if (!proc || !user_path) return -EFAULT;
+    if (proc->user_mode && !is_valid_user_range((const void*)(uintptr_t)user_path, 1))
+        return -EFAULT;
+    char local_path[256];
+    int copied = fetch_path(proc, user_path, local_path, sizeof(local_path));
+    if (copied < 0) return copied;
+    return fn(local_path);
+}
+
+static long sys_mkdir(uint64_t path, uint64_t mode, uint64_t u3, uint64_t u4,
+                      uint64_t u5, uint64_t u6) {
+    (void)mode; (void)u3; (void)u4; (void)u5; (void)u6;
+    return path_op(path, vfs_mkdir);
+}
+
+static long sys_rmdir(uint64_t path, uint64_t u2, uint64_t u3, uint64_t u4,
+                      uint64_t u5, uint64_t u6) {
+    (void)u2; (void)u3; (void)u4; (void)u5; (void)u6;
+    return path_op(path, vfs_rmdir);
+}
+
+static long sys_rename(uint64_t old_path, uint64_t new_path, uint64_t u3,
+                       uint64_t u4, uint64_t u5, uint64_t u6) {
+    (void)u3; (void)u4; (void)u5; (void)u6;
+    struct process* proc = process_get_current();
+    if (!proc || !old_path || !new_path) return -EFAULT;
+    if (proc->user_mode &&
+        (!is_valid_user_range((const void*)(uintptr_t)old_path, 1) ||
+         !is_valid_user_range((const void*)(uintptr_t)new_path, 1)))
+        return -EFAULT;
+    char from[256], to[256];
+    int result = fetch_path(proc, old_path, from, sizeof(from));
+    if (result < 0) return result;
+    result = fetch_path(proc, new_path, to, sizeof(to));
+    if (result < 0) return result;
+    return vfs_rename(from, to);
+}
+
+static long sys_sync(uint64_t u1, uint64_t u2, uint64_t u3, uint64_t u4,
+                     uint64_t u5, uint64_t u6) {
+    (void)u1; (void)u2; (void)u3; (void)u4; (void)u5; (void)u6;
+    int result = vfs_sync();
+    int flushed = blk_sync_all();
+    return result < 0 ? result : flushed;
+}
+
+/* mount(source, target, fstype): so root. `source` = "/dev/<nome>" (nome do
+ * registro de blocos: hda1, ram0...); por enquanto so FAT32. */
+static long sys_mount(uint64_t source, uint64_t target, uint64_t fstype,
+                      uint64_t u4, uint64_t u5, uint64_t u6) {
+    (void)u4; (void)u5; (void)u6;
+    struct process* proc = process_get_current();
+    if (!proc || !source || !target) return -EFAULT;
+    if (proc->uid != 0) return -EPERM;
+    if (proc->user_mode &&
+        (!is_valid_user_range((const void*)(uintptr_t)source, 1) ||
+         !is_valid_user_range((const void*)(uintptr_t)target, 1)))
+        return -EFAULT;
+    if (fstype) {
+        char type[16];
+        int result = copy_path_from_caller(proc, type, sizeof(type),
+                                           (const char*)(uintptr_t)fstype);
+        if (result < 0) return result;
+        if (strcmp(type, "fat32") != 0 && strcmp(type, "vfat") != 0)
+            return -ENOTSUP;
+    }
+    char src[256], dst[256];
+    int result = fetch_path(proc, source, src, sizeof(src));
+    if (result < 0) return result;
+    result = fetch_path(proc, target, dst, sizeof(dst));
+    if (result < 0) return result;
+    if (strncmp(src, "/dev/", 5) != 0) return -ENODEV;
+    struct blkdev* dev = blk_find(src + 5);
+    if (!dev) return -ENODEV;
+    return fat32_vfs_mount(dev, dst);
+}
+
+static long sys_umount(uint64_t target, uint64_t u2, uint64_t u3, uint64_t u4,
+                       uint64_t u5, uint64_t u6) {
+    (void)u2; (void)u3; (void)u4; (void)u5; (void)u6;
+    struct process* proc = process_get_current();
+    if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
+    int result = (int)path_op(target, vfs_umount);
+    if (result == 0) (void)blk_sync_all();
+    return result;
+}
+
 void syscall_init(void) {
     memset(g_syscalls, 0, sizeof(g_syscalls));
     syscall_register(SYS_EXIT, sys_exit);
@@ -624,6 +718,12 @@ void syscall_init(void) {
     syscall_register(SYS_GETDENTS, sys_getdents);
     syscall_register(SYS_CHDIR, sys_chdir);
     syscall_register(SYS_GETCWD, sys_getcwd);
+    syscall_register(SYS_MKDIR, sys_mkdir);
+    syscall_register(SYS_RMDIR, sys_rmdir);
+    syscall_register(SYS_RENAME, sys_rename);
+    syscall_register(SYS_SYNC, sys_sync);
+    syscall_register(SYS_MOUNT, sys_mount);
+    syscall_register(SYS_UMOUNT, sys_umount);
 }
 
 long syscall_dispatch(int num, uint64_t arg1, uint64_t arg2, uint64_t arg3,

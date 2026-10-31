@@ -40,6 +40,10 @@
 #define SYS_MMAP        90
 #define SYS_MUNMAP      91
 #define SYS_KILL        37
+#define SYS_SYNC        36
+#define SYS_RENAME      38
+#define SYS_MKDIR       39
+#define SYS_RMDIR       40
 #define SYS_DUP         41
 #define SYS_PIPE        42
 #define SYS_DUP2        63
