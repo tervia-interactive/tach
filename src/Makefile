@@ -45,6 +45,13 @@ LD := $(CROSS_COMPILE)ld
 # must be pulled in explicitly from libgcc. Recursive '=' so CFLAGS is final.
 LIBGCC_PATH = $(shell $(CC) $(CFLAGS) -print-libgcc-file-name 2>/dev/null)
 LIBGCC = $(if $(wildcard $(LIBGCC_PATH)),$(LIBGCC_PATH))
+# The Ubuntu cross toolchains used by CI ship only a hard-float ARM libgcc and
+# a rv64 one, whose ABI tags the linker refuses to merge with the soft-float
+# arm32 / rv32 kernel. Those two targets provide their own 64-bit division
+# helpers (arch/arm32/aeabi.c, arch/riscv32/divdi3.c) instead.
+ifneq ($(filter $(ARCH),arm32 riscv32),)
+LIBGCC =
+endif
 
 INCLUDE_DIR := $(ROOTDIR)/include
 SRC_DIRS := kernel sync ipc hal boot hw mm proc fs term lib userland
