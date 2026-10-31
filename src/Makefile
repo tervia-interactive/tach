@@ -40,6 +40,11 @@ endif
 
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
+# The kernel is linked with ld and -nostdlib, so compiler runtime helpers
+# (e.g. __aeabi_uidiv/__aeabi_uidivmod on ARM, __udivdi3 on 32-bit targets)
+# must be pulled in explicitly from libgcc. Recursive '=' so CFLAGS is final.
+LIBGCC_PATH = $(shell $(CC) $(CFLAGS) -print-libgcc-file-name 2>/dev/null)
+LIBGCC = $(if $(wildcard $(LIBGCC_PATH)),$(LIBGCC_PATH))
 
 INCLUDE_DIR := $(ROOTDIR)/include
 SRC_DIRS := kernel sync ipc hal boot hw mm proc fs term lib userland
@@ -80,7 +85,7 @@ $(OBJ_DIR)/%.o: %.S
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(KERNEL_BIN): $(OBJECTS)
-	$(LD) $(LDFLAGS) -o $@ $(OBJECTS)
+	$(LD) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBGCC)
 
 iso: $(KERNEL_BIN)
 ifeq ($(filter $(ARCH),i686 x86_64),)
