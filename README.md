@@ -1,6 +1,6 @@
 # tach
 
-A free, practical and universal operating system written in C, for many architectures and many kinds of devices. Current version: **0.0.11**.
+A free, practical and universal operating system written in C, for many architectures and many kinds of devices. Current version: **0.0.12**.
 
 ## Overview
 

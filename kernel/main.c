@@ -35,7 +35,7 @@ void kernel_main(void) {
     kernel_init();
     
     vga_println("Welcome to tach");
-    vga_println("Version: 0.0.11");
+    vga_println("Version: 0.0.12");
     vga_println("");
     vga_println("System initialized successfully.");
     vga_println("Type 'help' for available commands.");

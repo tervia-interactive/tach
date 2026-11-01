@@ -102,6 +102,13 @@ test-host:
 		src/drivers/input/keyboard_ps2.c -o src/build/host/blk-test
 	@src/build/host/blk-test
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
+		tests/host/vfs_disk_test.c src/fs/tmpfs.c src/fs/vfs.c src/drivers/block/blk.c src/drivers/block/blk_part.c \
+		src/drivers/block/ramdisk.c src/lib/string.c src/lib/printf.c src/kernel/klog.c \
+		src/mm/kheap.c src/mm/slab.c src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c \
+		src/hal/io.c src/hal/console.c src/hal/host_stubs.c src/drivers/char/serial_8250.c \
+		src/drivers/video/vga_text.c src/drivers/input/keyboard_ps2.c -o src/build/host/vfs-disk-test
+	@src/build/host/vfs-disk-test
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fno-builtin -DTACH_HOST_TEST -Iinclude \
 		tests/host/fat32_test.c src/fs/fat32.c src/fs/vfs.c src/drivers/block/blk.c src/drivers/block/blk_part.c \
 		src/drivers/block/ramdisk.c src/lib/string.c src/lib/printf.c src/kernel/klog.c \
 		src/mm/kheap.c src/mm/slab.c src/sync/atomic.c src/sync/spinlock.c src/hal/cpu.c src/hal/irq.c \

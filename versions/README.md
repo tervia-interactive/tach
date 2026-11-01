@@ -4,7 +4,8 @@ One document per released version. Each document describes that version only: wh
 
 | Version | Status | Document |
 |---------|--------|----------|
-| 0.0.11  | Current | [0.0.11.md](0.0.11.md) |
+| 0.0.12  | Current | [0.0.12.md](0.0.12.md) |
+| 0.0.11  | Previous | [0.0.11.md](0.0.11.md) |
 
 Conventions:
 

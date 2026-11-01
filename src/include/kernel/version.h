@@ -9,13 +9,13 @@
 /* Version components */
 #define TACH_VERSION_MAJOR  0
 #define TACH_VERSION_MINOR  0
-#define TACH_VERSION_PATCH  11
+#define TACH_VERSION_PATCH  12
 #define TACH_VERSION_DEV    0
 
 /* Version string */
-#define TACH_VERSION_STRING "0.0.11"
+#define TACH_VERSION_STRING "0.0.12"
 #define TACH_NAME           "tach"
-#define TACH_RELEASE        "tach-0.0.11"
+#define TACH_RELEASE        "tach-0.0.12"
 
 /* Build info */
 extern const char* tach_build_date;

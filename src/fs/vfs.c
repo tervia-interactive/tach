@@ -4,6 +4,15 @@
 #include <fs/procfs.h>
 #include <fs/tmpfs.h>
 #include <hal/console.h>
+#include <drivers/block/blk.h>
+
+/* Os testes de host que linkam vfs.c sem a camada de bloco ficam sem discos:
+ * as referencias sao fracas e viram NULL. */
+extern size_t blk_count(void) __attribute__((weak));
+extern struct blkdev* blk_get(size_t index) __attribute__((weak));
+extern struct blkdev* blk_find(const char* name) __attribute__((weak));
+extern int blk_read_bytes(struct blkdev*, uint64_t, void*, size_t) __attribute__((weak));
+extern int blk_write_bytes(struct blkdev*, uint64_t, const void*, size_t) __attribute__((weak));
 
 #define VFS_MAX_MEMFILES 64
 
@@ -148,6 +157,70 @@ static struct vnode_ops g_zero_ops = {
     .open = simple_open, .close = simple_close,
     .read = zero_read, .write = null_write, .readdir = NULL
 };
+/* ---- /dev/<disco>: acesso bruto por byte ao dispositivo de bloco ---- */
+static struct vnode g_disk_nodes[BLK_MAX_DEVICES];
+static char g_disk_paths[BLK_MAX_DEVICES][BLK_NAME_MAX + 6];
+
+static size_t disk_count(void) {
+    return blk_count ? blk_count() : 0;
+}
+
+static struct blkdev* disk_dev(struct vnode* vnode) {
+    return (struct blkdev*)vnode->data;
+}
+
+static ssize_t disk_read(struct vnode* vnode, void* buffer, size_t count,
+                         int64_t offset) {
+    struct blkdev* dev = disk_dev(vnode);
+    if (!dev || !buffer || offset < 0) return -EINVAL;
+    uint64_t total = dev->sectors * BLK_SECTOR_SIZE;
+    if ((uint64_t)offset >= total) return 0;
+    if (count > total - (uint64_t)offset) count = (size_t)(total - (uint64_t)offset);
+    if (!count) return 0;
+    int result = blk_read_bytes(dev, (uint64_t)offset, buffer, count);
+    return result < 0 ? result : (ssize_t)count;
+}
+
+static ssize_t disk_write(struct vnode* vnode, const void* buffer, size_t count,
+                          int64_t offset) {
+    struct blkdev* dev = disk_dev(vnode);
+    if (!dev || !buffer || offset < 0) return -EINVAL;
+    if (dev->readonly) return -EROFS;
+    uint64_t total = dev->sectors * BLK_SECTOR_SIZE;
+    if ((uint64_t)offset >= total) return -ENOSPC;
+    if (count > total - (uint64_t)offset) count = (size_t)(total - (uint64_t)offset);
+    if (!count) return 0;
+    int result = blk_write_bytes(dev, (uint64_t)offset, buffer, count);
+    return result < 0 ? result : (ssize_t)count;
+}
+
+static struct vnode_ops g_disk_ops = {
+    .open = simple_open, .close = simple_close,
+    .read = disk_read, .write = disk_write, .readdir = NULL
+};
+
+/* Vnode de "/dev/<nome>" se existir um dispositivo com esse nome. */
+static struct vnode* disk_lookup(const char* path) {
+    if (!blk_find || strncmp(path, "/dev/", 5) != 0 || !path[5]) return NULL;
+    struct blkdev* dev = blk_find(path + 5);
+    if (!dev) return NULL;
+    for (size_t i = 0; i < disk_count(); i++) {
+        if (blk_get(i) != dev) continue;
+        struct vnode* vnode = &g_disk_nodes[i];
+        if (vnode->data != dev || vnode->ops != &g_disk_ops) {
+            memset(vnode, 0, sizeof(*vnode));
+            vnode->type = VNODE_BLOCK;
+            vnode->name = dev->name;
+            vnode->parent = &g_root;
+            vnode->data = dev;
+            vnode->ops = &g_disk_ops;
+        }
+        vnode->size = (size_t)(dev->sectors * BLK_SECTOR_SIZE);
+        return vnode;
+    }
+    return NULL;
+}
+
 static struct vnode_ops g_memfile_ops = {
     .open = simple_open, .close = simple_close,
     .read = memfile_read, .write = NULL, .readdir = NULL
@@ -194,7 +267,7 @@ static const struct vfs_fixed_entry g_fixed[] = {
 #define VFS_FIXED_COUNT (sizeof(g_fixed) / sizeof(g_fixed[0]))
 
 static size_t candidate_total(void) {
-    return VFS_FIXED_COUNT + g_memfile_count + procfs_count();
+    return VFS_FIXED_COUNT + disk_count() + g_memfile_count + procfs_count();
 }
 
 /* i-esimo caminho conhecido (fixos, depois initrd, depois /proc), na mesma
@@ -206,6 +279,20 @@ static bool candidate_at(size_t index, const char** path, int* type) {
         return true;
     }
     index -= VFS_FIXED_COUNT;
+    if (index < disk_count()) {
+        struct blkdev* dev = blk_get(index);
+        if (!dev) return false;
+        char* buf = g_disk_paths[index];
+        memcpy(buf, "/dev/", 5);
+        size_t n = strlen(dev->name);
+        if (n >= BLK_NAME_MAX) n = BLK_NAME_MAX - 1;
+        memcpy(buf + 5, dev->name, n);
+        buf[5 + n] = '\0';
+        *path = buf;
+        *type = VNODE_BLOCK;
+        return true;
+    }
+    index -= disk_count();
     if (index < g_memfile_count) {
         *path = g_memfiles[index].path;
         *type = VNODE_FILE;
@@ -407,6 +494,7 @@ struct vnode* vfs_open_err(const char* path, int flags, int* error) {
              strcmp(path, "/dev/tty") == 0) vnode = &g_console;
     else if (strcmp(path, "/dev/null") == 0) vnode = &g_null;
     else if (strcmp(path, "/dev/zero") == 0) vnode = &g_zero;
+    else if ((vnode = disk_lookup(path)) != NULL) { /* /dev/<disco> */ }
     else if (tmpfs_owns(path)) {
         vnode = tmpfs_lookup(path, flags, error);
         if (!vnode) return NULL;
