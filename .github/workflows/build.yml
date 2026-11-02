@@ -67,6 +67,26 @@ jobs:
         grep -F "tach userspace shell" boot.log
         ! grep -F "userspace exited" boot.log
 
+    - name: Boot matrix (CPU count x RAM size)
+      shell: bash
+      run: |
+        if [ "${{ matrix.arch }}" = i686 ]; then
+          qemu=qemu-system-i386
+        else
+          qemu=qemu-system-x86_64
+        fi
+        for cfg in "1 128M" "4 512M" "2 3G"; do
+          set -- $cfg
+          # i686 cannot address more than ~3 GiB; x86_64 covers the high-RAM case
+          if [ "${{ matrix.arch }}" = i686 ] && [ "$2" = 3G ]; then continue; fi
+          timeout 12s "$qemu" -cdrom src/build/${{ matrix.arch }}/tach.iso \
+            -display none -serial stdio -no-reboot -smp "$1" -m "$2" \
+            > boot-$1-$2.log 2>&1 || true
+          cat boot-$1-$2.log
+          grep -F "tach userspace shell" boot-$1-$2.log
+          ! grep -E "kernel exception|panic" boot-$1-$2.log
+        done
+
     - name: Upload binary
       uses: actions/upload-artifact@v6
       with:

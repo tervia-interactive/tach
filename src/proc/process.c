@@ -22,6 +22,7 @@ static spinlock_t g_process_lock;
 
 #ifndef TACH_HOST_TEST
 static void process_trampoline(void) {
+    scheduler_finish_switch();
     struct process* current = process_get_current();
     if (current && current->user_mode) {
         struct user_context context = current->user_context;

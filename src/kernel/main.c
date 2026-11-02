@@ -175,12 +175,12 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
             klog_warn("initrd", "boot module is not a valid USTAR archive");
         }
     }
-    klog_info("tmpfs", "registered");
     tmpfs_init();
-    klog_info("devfs", "registered, mounting /dev");
+    klog_info("tmpfs", "registered");
     devfs_init();
-    klog_info("procfs", "registered, mounting /proc");
+    klog_info("devfs", "registered, /dev mounted");
     procfs_init();
+    klog_info("procfs", "registered, /proc mounted");
 
     klog_info("blk", "block layer: initializing sector cache");
     blk_init();
@@ -200,8 +200,8 @@ void kernel_main(uint32_t boot_magic, uintptr_t boot_info) {
     int ata_disks = ata_init();
     if (ata_disks <= 0)
         klog_info("ata", "no ATA disks found on the legacy IDE channels");
-    klog_warn("ahci", "no AHCI controller found on PCI bus, disk subsystem unavailable");
-    ahci_init();
+    if (ahci_init() <= 0)
+        klog_info("ahci", "AHCI/SATA driver is not implemented yet; SATA disks are not visible (use an IDE controller)");
 
     /* Automount: primeiro dispositivo de bloco (particao ou disco inteiro)
      * com FAT32 vai para /mnt. Sem disco nao e erro. */

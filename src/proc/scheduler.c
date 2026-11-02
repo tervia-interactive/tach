@@ -16,10 +16,23 @@ struct cpu_runqueue {
 };
 static struct cpu_runqueue g_runqueues[MAX_CPUS];
 static spinlock_t g_balance_lock;
+/* Process each CPU just switched away from. Its on_cpu flag may only be
+ * cleared once the *incoming* context is running, because until task_switch()
+ * has saved the old stack pointer another CPU must not resume it. */
+static struct process* volatile g_switched_from[MAX_CPUS];
 
 #ifndef TACH_HOST_TEST
 extern void task_switch(uintptr_t* old_stack, uintptr_t* new_stack);
 #endif
+
+void scheduler_finish_switch(void) {
+    uint32_t cpu = hal_smp_current_cpu();
+    struct process* prev = g_switched_from[cpu];
+    if (!prev) return;
+    g_switched_from[cpu] = NULL;
+    __sync_synchronize();
+    prev->on_cpu = false;
+}
 
 void scheduler_init(void) {
     memset(g_runqueues, 0, sizeof(g_runqueues));
@@ -103,7 +116,7 @@ struct process* scheduler_pick_next(void) {
 
 void scheduler_context_switch(struct process* from, struct process* to) {
     if (!to || to == from) return;
-    if (from) from->on_cpu = false;
+    g_switched_from[hal_smp_current_cpu()] = from;
     process_set_current(to);
 #ifndef TACH_HOST_TEST
     vmm_switch_context(to->mm);
@@ -114,21 +127,24 @@ void scheduler_context_switch(struct process* from, struct process* to) {
     uintptr_t* old_stack = from ? &from->saved_stack :
         &g_runqueues[hal_smp_current_cpu()].idle_stack;
     task_switch(old_stack, &to->saved_stack);
+    scheduler_finish_switch();
 #else
-    (void)from;
+    scheduler_finish_switch();
 #endif
 }
 
 static void scheduler_switch_to_idle(struct process* from) {
     if (!from) return;
     uint32_t cpu = hal_smp_current_cpu();
-    from->on_cpu = false;
+    g_switched_from[cpu] = from;
     process_set_current(NULL);
 #ifndef TACH_HOST_TEST
     vmm_switch_context(vmm_kernel_context());
     task_switch(&from->saved_stack, &g_runqueues[cpu].idle_stack);
+    scheduler_finish_switch();
 #else
     (void)cpu;
+    scheduler_finish_switch();
 #endif
 }
 

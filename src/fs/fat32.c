@@ -905,7 +905,7 @@ static void node_touch(struct fat32_vol* vol, struct fat32_node* node,
  * liga: primeiro cluster do arquivo). Em erro nada fica alocado. */
 static int chain_grow(struct fat32_vol* vol, uint32_t prev, bool zero,
                       uint32_t* out) {
-    uint32_t fresh;
+    uint32_t fresh = 0;
     int result = cluster_alloc(vol, &fresh);
     if (result < 0) return result;
     if (zero) result = cluster_zero(vol, fresh);
@@ -1643,7 +1643,7 @@ static int dir_alloc_slots(struct fat32_vol* vol, uint32_t first, uint32_t need,
     while (run < need) {                             /* estende o diretorio */
         if ((nclusters + 1u) > FAT32_DIR_MAX_ENTRIES / vol->entries_per_cluster)
             return -ENOSPC;
-        uint32_t fresh;
+        uint32_t fresh = 0;
         int result = chain_grow(vol, last_cluster, true, &fresh);
         if (result < 0) return result;
         if (run == 0) {
