@@ -6,6 +6,7 @@
 #include <hal/irq.h>
 #include <hal/time.h>
 #include <proc/scheduler.h>
+#include <kernel/klog.h>
 
 static volatile bool g_cpu_online[MAX_CPUS];
 static bool g_smp_initialized;
@@ -58,13 +59,24 @@ void hal_smp_init(void) {
     g_active_cpu_count = 1;
     int detected = arch_smp_cpu_count();
     if (detected > MAX_CPUS) detected = MAX_CPUS;
+#ifdef TACH_NOSMP
+    detected = 1;
+#endif
     for (int cpu = 1; cpu < detected; cpu++) {
+        klog_info("smp", "starting CPU %d of %d", cpu, detected);
         if (hal_smp_boot_secondary((uint32_t)cpu,
-                                   (void*)hal_smp_secondary_entry) < 0)
+                                   (void*)hal_smp_secondary_entry) < 0) {
+            klog_warn("smp", "CPU %d did not start; continuing with %d CPU(s)",
+                      cpu, g_active_cpu_count);
             break;
+        }
         for (uint32_t wait = 0; wait < 10000000u && !g_cpu_online[cpu]; wait++)
             __asm__ volatile("" ::: "memory");
-        if (!g_cpu_online[cpu]) break;
+        if (!g_cpu_online[cpu]) {
+            klog_warn("smp", "CPU %d never reported online; continuing with %d CPU(s)",
+                      cpu, g_active_cpu_count);
+            break;
+        }
         g_active_cpu_count++;
     }
 }

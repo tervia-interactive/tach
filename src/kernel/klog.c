@@ -18,10 +18,19 @@ void klog_advance(uint32_t usec) {
     g_boot_usec += usec;
 }
 
+/* Weak: freestanding host tests link klog without the timer. */
+extern uint64_t hal_timer_get_ticks(void) __attribute__((weak));
+
+/* Once the 100 Hz timer runs, report real elapsed time; before that only a
+ * synthetic counter that keeps log lines ordered is available. */
 static void emit_timestamp(void) {
+    uint32_t usec = g_boot_usec;
+    if (hal_timer_get_ticks) {
+        uint64_t ticks = hal_timer_get_ticks();
+        if (ticks) usec = (uint32_t)(ticks * 10000u);
+    }
     kprintf_to(hal_console_putchar, "[%5u.%06u] ",
-               g_boot_usec / 1000000u,
-               g_boot_usec % 1000000u);
+               usec / 1000000u, usec % 1000000u);
 }
 
 void klog_raw(const char* fmt, ...) {

@@ -154,6 +154,7 @@ int arch_paging_map(void* root, uintptr_t virtual_address,
     if (pd[i2] & X86_PTE_HUGE) {
         int result = split_2m_page(pd, i2);
         if (result < 0) return result;
+        pd[i2] |= table_flags;
     } else if (!(pd[i2] & X86_PTE_PRESENT)) {
         uint64_t* table = allocate_table();
         if (!table) return -ENOMEM;

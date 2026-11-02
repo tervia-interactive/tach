@@ -19,6 +19,7 @@ void scheduler_remove(struct process* proc);
 struct process* scheduler_pick_next(void);
 void scheduler_yield(void);
 void scheduler_tick(void);
+void scheduler_finish_switch(void);
 void scheduler_context_switch(struct process* from, struct process* to);
 void scheduler_block_current(void* reason);
 void scheduler_wake(struct process* proc);

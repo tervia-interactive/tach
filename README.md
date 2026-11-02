@@ -4,7 +4,7 @@
 
 ---
 
-A free, practical and universal operating system written in C, for many architectures and many kinds of devices. Current version: **0.0.12**.
+A free, practical and universal operating system written in C, for many architectures and many kinds of devices. Current version: **0.0.12** (0.0.13 in progress, see versions/0.0.13.md).
 
 ## Overview
 

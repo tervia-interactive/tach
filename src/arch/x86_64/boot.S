@@ -30,7 +30,7 @@ pml4_table:
 pdpt_table:
 .skip 4096
 pd_table:
-.skip 4096
+.skip 16384            # 4 page directories: identity map of 4 GiB
 
 .align 16
 stack_bottom:
@@ -67,9 +67,11 @@ _start:
     movl %eax, boot_magic
     movl %ebx, boot_info
 
-    # Identity-map the first 1GiB with 2MiB pages: covers the kernel
-    # (linked at 1MiB), the multiboot info blob GRUB left behind, and
-    # legacy I/O/VGA memory, all in one PD.
+    # Identity-map the first 4GiB with 2MiB pages: covers the kernel
+    # (linked at 1MiB), the multiboot info blob GRUB left behind, legacy
+    # I/O/VGA memory, ACPI tables and RAM placed high by the firmware
+    # (VMs with >1GiB put the ACPI tables just below 4GiB) and the PCI/LAPIC
+    # MMIO window. The PMM and VMM address physical frames directly.
     movl $pdpt_table, %eax
     orl $0x03, %eax                # present | writable
     movl %eax, (pml4_table)
@@ -77,6 +79,12 @@ _start:
     movl $pd_table, %eax
     orl $0x03, %eax
     movl %eax, (pdpt_table)
+    addl $4096, %eax
+    movl %eax, (pdpt_table + 8)
+    addl $4096, %eax
+    movl %eax, (pdpt_table + 16)
+    addl $4096, %eax
+    movl %eax, (pdpt_table + 24)
 
     movl $0, %ecx
 fill_pd:
@@ -85,7 +93,7 @@ fill_pd:
     orl $0x83, %eax                # present | writable | PS (2MiB page)
     movl %eax, pd_table(,%ecx,8)
     incl %ecx
-    cmpl $512, %ecx
+    cmpl $2048, %ecx
     jne fill_pd
 
     # Enable PAE (required before entering long mode)
